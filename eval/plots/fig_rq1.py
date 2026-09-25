@@ -39,18 +39,16 @@ PANEL_W, PANEL_H = 1.62, 1.55  # inches; three panels fit LNCS \textwidth (12.2 
 
 def style() -> None:
     plt.rcParams.update({
-        # Times, as in IEEE Transactions figures; STIX gives matching Times-style math.
-        "font.family": "serif",
-        "font.serif": ["Times New Roman", "Nimbus Roman", "STIXGeneral", "DejaVu Serif"],
-        "mathtext.fontset": "stix",
-        "axes.formatter.use_mathtext": True,
+        # matplotlib defaults (DejaVu Sans); sizes chosen for ~7-8 pt in print at half \textwidth.
+        "font.family": "sans-serif",
+        "mathtext.fontset": "dejavusans",
         "axes.unicode_minus": False,
-        "font.size": 7,
-        "axes.labelsize": 7,
-        "axes.titlesize": 7,
-        "xtick.labelsize": 6.5,
-        "ytick.labelsize": 6.5,
-        "legend.fontsize": 6,
+        "font.size": 8,
+        "axes.labelsize": 8,
+        "axes.titlesize": 8,
+        "xtick.labelsize": 7,
+        "ytick.labelsize": 7,
+        "legend.fontsize": 7,
         "axes.edgecolor": INK2,
         "axes.linewidth": 0.5,
         "xtick.color": INK2,
@@ -119,7 +117,7 @@ def panel_a(out: Path, g, s) -> None:
     grouped = load_json(RUNS / "p7-screening-model-corrected-20260912-r2" / "metrics.json")["metrics"]
     paired = load_json(RUNS / "p7-near-negative-20260912-r1" / "paired_metrics.json")
     strat = load_json(RES / "e1_evaluation.json")["metrics"]
-    fig, ax = plt.subplots(figsize=(1.42, 1.12))
+    fig, ax = plt.subplots(figsize=(2.35, 1.75))
     lab = np.array([r[1] for r in rows])
     sc = np.array([r[2] for r in rows])
     is_ord = np.array([r[0] in ordinary for r in rows])
@@ -138,7 +136,7 @@ def panel_a(out: Path, g, s) -> None:
         ax.step(r, p, where="post", color=color, lw=1.0, ls=ls, zorder=3,
                 label=f"{name} {auprc:.2f}")
         rr, pp, _, _ = operating_point(y, x, t_)
-        ax.plot(rr, pp, "o", ms=3.4, mfc=color, mec="white", mew=0.6, zorder=4)
+        ax.plot(rr, pp, "o", ms=4.2, mfc=color, mec="white", mew=0.6, zorder=4)
     ax.set_xlim(0, 1.0)
     ax.set_ylim(0, 1.04)
     ax.set_xlabel("Recall")
@@ -147,7 +145,7 @@ def panel_a(out: Path, g, s) -> None:
     ax.set_yticks([0, 0.5, 1])
     ax.grid(True, lw=0.3, color="#e6e5e0", zorder=0)
     ax.legend(loc="lower left", bbox_to_anchor=(-0.02, 1.0), frameon=False, handlelength=1.8,
-              borderaxespad=0.0, labelspacing=0.2, fontsize=5.6)
+              borderaxespad=0.0, labelspacing=0.2, fontsize=7)
     fig.savefig(out / "fig3a.pdf")
     plt.close(fig)
 
@@ -159,7 +157,7 @@ def panel_b(out: Path, g) -> None:
         ("near-neg.", [r[2] for r in rows if r[1] == 0 and r[0] in near], C_NEAR),
         ("ordinary", [r[2] for r in rows if r[1] == 0 and r[0] in ordinary], C_ORD),
     ]
-    fig, ax = plt.subplots(figsize=(1.30, 1.42))
+    fig, ax = plt.subplots(figsize=(2.35, 2.0))
     rng = np.random.default_rng(7)
     for i, (name, vals, color) in enumerate(groups):
         v = np.clip(np.array(vals), 1e-4, 1.0)
@@ -169,12 +167,12 @@ def panel_b(out: Path, g) -> None:
         ax.plot([q1, q3], [i, i], color=INK, lw=1.4, zorder=4, solid_capstyle="butt")
         ax.plot(med, i, "|", color="white", ms=5, mew=1.2, zorder=5)
         hit = int((v >= tau).sum())
-        ax.text(1.35, i, f"{hit}/{v.size}", fontsize=5.8, color=INK, va="center", ha="left")
+        ax.text(1.35, i, f"{hit}/{v.size}", fontsize=7, color=INK, va="center", ha="left")
     ax.axvline(tau, color=INK, lw=0.7, ls="--", zorder=2)
     ax.axvline(tau01, color=INK2, lw=0.5, ls=":", zorder=2)
-    ax.text(tau, 2.45, r"$\tau_{1\%}$", fontsize=5.6, ha="right", va="bottom", rotation=90, color=INK)
-    ax.text(tau01, 2.45, r"$\tau_{0.1\%}$", fontsize=5.6, ha="right", va="bottom", rotation=90, color=INK2)
-    ax.text(1.35, -0.62, "alerts", fontsize=5.6, ha="left", va="bottom", color=INK2)
+    ax.text(tau, 2.45, r"$\tau_{1\%}$", fontsize=7, ha="right", va="bottom", rotation=90, color=INK)
+    ax.text(tau01, 2.45, r"$\tau_{0.1\%}$", fontsize=7, ha="right", va="bottom", rotation=90, color=INK2)
+    ax.text(1.35, -0.62, "alerts", fontsize=7, ha="left", va="bottom", color=INK2)
     ax.set_xscale("log")
     ax.set_xlim(1e-4, 1.0)
     ax.set_xticks([1e-4, 1e-2, 1])
@@ -230,7 +228,7 @@ def panel_c(out: Path, g, s) -> None:
     fams.sort(key=lambda e: -e["n_att"])
     items += [None] + fams  # None = "held-out family:" header row
 
-    fig, ax = plt.subplots(figsize=(1.18, 1.42))
+    fig, ax = plt.subplots(figsize=(3.2, 2.1))
     y = np.arange(len(items))
     for yi, e in zip(y, items):
         if e is None:
@@ -243,7 +241,7 @@ def panel_c(out: Path, g, s) -> None:
         ax.scatter(e["auprc"], yi, s=size, facecolor=color if within else "white",
                    edgecolor=color, lw=0.9, zorder=3)
     ax.set_yticks(y)
-    ticks = ax.set_yticklabels([("held-out family:" if e is None else e["name"]) for e in items], fontsize=5.4)
+    ticks = ax.set_yticklabels([("held-out family:" if e is None else e["name"]) for e in items], fontsize=6.5)
     for tick, e in zip(ticks, items):
         if e is None:
             tick.set_fontstyle("italic")

@@ -33,7 +33,7 @@ C_VICTIM, C_THIRD = C_ATTACK, C_NEAR
 
 GROUPS = [
     ("balance", {"0x70a08231"}),
-    ("price, accounting", {"0x0902f1ac", "0xfeaf968c", "0x50d25bcd", "0x3850c7bd", "0xfc57d4fc", "0x182df0f5",
+    ("price/acct.", {"0x0902f1ac", "0xfeaf968c", "0x50d25bcd", "0x3850c7bd", "0xfc57d4fc", "0x182df0f5",
                             "0xbd6d894d", "0x01e1d114", "0x07a2d13a", "0x18160ddd", "0x98d5fdca", "0x41976e09"}),
     ("token call", {"0xa9059cbb", "0x23b872dd", "0x095ea7b3", "0xdd62ed3e"}),
     ("metadata", {"0x95d89b41", "0x313ce567", "0x06fdde03", "0x6f307dc3", "0x01ffc9a7"}),
@@ -78,7 +78,7 @@ def factor_sites(path: Path) -> dict[str, set[str]]:
 
 def panel_a(out: Path, cases, f2, f3) -> None:
     rng = np.random.default_rng(3)
-    fig, ax = plt.subplots(figsize=(2.05, 2.0))
+    fig, ax = plt.subplots(figsize=(1.75, 2.6))
     counts = np.zeros((len(GROUPS), 2), int)
     for name, d in cases.items():
         for r in d.get("scoped_reads") or []:
@@ -100,21 +100,21 @@ def panel_a(out: Path, cases, f2, f3) -> None:
                        zorder=z)
     ax.axvspan(1.2e-7, 7e-7, color="#f1f0ec", zorder=0, lw=0)
     for g in range(len(GROUPS)):
-        ax.text(3e3, g, f"{counts[g, 1]}/{counts[g, 0]}", fontsize=5.6, color=INK, va="center", ha="left")
-    ax.text(3e3, -0.75, "changed", fontsize=5.2, color=INK2, ha="left", va="bottom")
+        ax.text(3e3, g, f"{counts[g, 1]}/{counts[g, 0]}", fontsize=7, color=INK, va="center", ha="left")
+    ax.text(3e3, -0.75, "changed", fontsize=6.5, color=INK2, ha="left", va="bottom")
     ax.set_xscale("log")
     ax.set_xlim(1.2e-7, 1e3)
     ax.set_xticks([1e-5, 1e-2, 1e1])
     ax.set_ylim(len(GROUPS) - 0.45, -0.75)
     ax.set_yticks(range(len(GROUPS)))
-    ax.set_yticklabels([g for g, _ in GROUPS], fontsize=5.8)
+    ax.set_yticklabels([g for g, _ in GROUPS], fontsize=7)
     ax.set_xlabel(r"|observed $-$ $S_0$| / $S_0$")
     ax.tick_params(axis="y", length=0)
     ax.spines["left"].set_visible(False)
     ax.grid(True, axis="x", lw=0.3, color="#e6e5e0", zorder=0)
-    ax.legend(handles=[Line2D([], [], ls="", marker="o", ms=3.4, color=c) for c in (C_V2, C_V3, C_PASSIVE)],
+    ax.legend(handles=[Line2D([], [], ls="", marker="o", ms=4.2, color=c) for c in (C_V2, C_V3, C_PASSIVE)],
               labels=["v2 factor", "v2+v3 factor", "other"], loc="lower center",
-              bbox_to_anchor=(0.45, 1.0), ncol=3, frameon=False, fontsize=5.4, handletextpad=0.2,
+              bbox_to_anchor=(0.45, 1.06), ncol=3, frameon=False, fontsize=6.5, handletextpad=0.1,
               borderaxespad=0.1, labelspacing=0.15)
     fig.savefig(out / "fig5a.pdf")
     plt.close(fig)
@@ -123,7 +123,7 @@ def panel_a(out: Path, cases, f2, f3) -> None:
 def panel_b(out: Path, cases, f2, summary) -> None:
     final = {r["case"]: r for r in summary["rows"]}
     order = sorted(cases, key=lambda n: (0 if f2.get(n) else 1, -len(cases[n].get("entry_frames") or [])))
-    fig, ax = plt.subplots(figsize=(2.15, 2.0))
+    fig, ax = plt.subplots(figsize=(1.85, 2.9))
     for y, name in enumerate(order):
         d = cases[name]
         frames = d.get("entry_frames") or []
@@ -146,9 +146,9 @@ def panel_b(out: Path, cases, f2, summary) -> None:
         fin = str(row.get("final", ""))
         tag = "SB" if "CAUSE" in fin else ("T" if "third_party" in fin else
                                              ("nf" if "no_harm_frame" in str(row.get("final_reason", "")) + fin else "–"))
-        ax.text(1.03, y, tag, fontsize=5.6, color=INK2, va="center", ha="left")
+        ax.text(1.03, y, tag, fontsize=7, color=INK2, va="center", ha="left")
     ax.set_yticks(range(len(order)))
-    ax.set_yticklabels([short(n) for n in order], fontsize=5.6)
+    ax.set_yticklabels([short(n) for n in order], fontsize=7)
     ax.set_ylim(len(order) - 0.5, -0.5)
     ax.set_xlim(0, 1)
     ax.set_xticks([0, 0.5, 1])
@@ -161,7 +161,7 @@ def panel_b(out: Path, cases, f2, summary) -> None:
                        Line2D([], [], color=MUTED, lw=0.6),
                        Line2D([], [], ls="", marker="|", ms=4, mew=0.9, color=C_NEAR)],
               labels=["harm frame", "other frame", "changed read"], loc="lower center",
-              bbox_to_anchor=(0.45, 1.0), ncol=3, frameon=False, fontsize=5.2, handlelength=1.0,
+              bbox_to_anchor=(0.45, 1.0), ncol=3, frameon=False, fontsize=6.5, handlelength=1.0,
               columnspacing=0.5, handletextpad=0.3, borderaxespad=0.1)
     fig.savefig(out / "fig5b.pdf")
     plt.close(fig)
@@ -213,14 +213,14 @@ def panel_c(out: Path, summary) -> None:
     ax.set_xlim(-0.35, 2.35)
     ax.set_ylim(len(rows) + 0.6, -0.2)
     ax.set_xticks(xs)
-    ax.set_xticklabels(labels, fontsize=5.6)
+    ax.set_xticklabels(labels, fontsize=7)
     ax.set_yticks([])
     for sname in ("left", "right", "top"):
         ax.spines[sname].set_visible(False)
     ax.legend(handles=[Rectangle((0, 0), 1, 1, color=colors[o]) for o in order] +
               [Rectangle((0, 0), 1, 1, color=INK)],
               labels=["victim", "third party", "attacker (0)"], loc="lower center", bbox_to_anchor=(0.5, 1.0),
-              ncol=1, frameon=False, fontsize=5.4, handlelength=0.9, handletextpad=0.3, borderaxespad=0.1,
+              ncol=1, frameon=False, fontsize=6.5, handlelength=0.9, handletextpad=0.3, borderaxespad=0.1,
               labelspacing=0.15)
     ax.set_xlabel("Revert origin")
     fig.savefig(out / "fig5c.pdf")
