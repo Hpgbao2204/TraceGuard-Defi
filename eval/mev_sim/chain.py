@@ -57,7 +57,8 @@ def find_anvil() -> str | None:
     env = os.environ.get("ANVIL")
     if env and Path(env).exists():
         return env
-    for cand in (shutil.which("anvil"), str(Path.home() / ".foundry" / "bin" / "anvil"), "/opt/foundry/anvil"):
+    home_bin = Path.home() / ".foundry" / "bin"
+    for cand in (shutil.which("anvil"), str(home_bin / "anvil"), str(home_bin / "anvil.exe"), "/opt/foundry/anvil"):
         if cand and Path(cand).exists():
             return cand
     return None

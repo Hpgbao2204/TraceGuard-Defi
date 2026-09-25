@@ -11,6 +11,9 @@ Every builder mode faces the same order flow; labels are known because we genera
 curl -L https://foundry.paradigm.xyz | bash && foundryup
 pip install eth-abi eth-utils pycryptodome requests pytest
 
+# Windows without WSL: unzip foundry_stable_win32_amd64.zip from
+# https://github.com/foundry-rs/foundry/releases and put anvil.exe on PATH (or set ANVIL=C:\path\anvil.exe)
+
 python -m eval.mev_sim.run --slots 200 --seed 7     # all six modes, ~2 min
 python -m pytest -q tests/test_mev_sim.py           # the anvil test skips if anvil is missing
 ```
