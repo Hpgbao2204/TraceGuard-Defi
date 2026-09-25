@@ -40,6 +40,13 @@ type victimEntryFrame struct {
 	AssetDeltas       map[string]string  `json:"asset_deltas"` // token/native address -> net outflow string
 	IsHarmFrame       bool               `json:"is_harm_frame"`
 	AttackerCallbacks []attackerCallback `json:"attacker_callbacks,omitempty"`
+	// ParentFrame is the entry frame that was active when this one was entered
+	// (-1 for a top-level entry). EnterSeq/ExitSeq are positions on the shared
+	// event clock, so reads, reverts and frames can be ordered in time.
+	ParentFrame int    `json:"parent_frame"`
+	EnterSeq    uint64 `json:"enter_seq"`
+	ExitSeq     uint64 `json:"exit_seq"`
+	LogDigest   string `json:"log_digest,omitempty"`
 
 	startLogCount int
 	entryBalances map[common.Address]*big.Int
@@ -61,6 +68,7 @@ type frameRecorder struct {
 	targetFrameIndex int
 	cancelFunc       func()
 	frameLocalResult *victimEntryFrame
+	clock            *eventClock
 }
 
 func newFrameRecorder(
@@ -96,7 +104,19 @@ func newFrameRecorder(
 		isFrameLocal:        isFrameLocal,
 		targetFrameIndex:    targetFrameIndex,
 		cancelFunc:          cancelFunc,
+		clock:               &eventClock{},
 	}
+}
+
+// targetActive reports whether the target entry frame is currently executing
+// (it is on the active entry stack, possibly with nested entries above it).
+func (r *frameRecorder) targetActive() bool {
+	for _, idx := range r.activeEntryStack {
+		if idx == r.targetFrameIndex {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *frameRecorder) isVictim(addr common.Address) bool {
@@ -145,6 +165,8 @@ func (r *frameRecorder) onEnter(
 		}
 		frame := victimEntryFrame{
 			FrameIndex:        fIdx,
+			ParentFrame:       r.currentFrameIndex(),
+			EnterSeq:          r.clock.now(),
 			Depth:             depth,
 			Caller:            from.Hex(),
 			Target:            to.Hex(),
@@ -181,8 +203,11 @@ func (r *frameRecorder) onEnter(
 	}
 }
 
+// onLog is only used without a StateDB. With a StateDB the frame's logs are
+// taken from st.Logs() at frame exit, which already excludes logs of reverted
+// sub-calls; collecting both would count every Transfer twice.
 func (r *frameRecorder) onLog(log *types.Log) {
-	if len(r.activeEntryStack) > 0 {
+	if r.st == nil && len(r.activeEntryStack) > 0 {
 		currIdx := r.currentFrameIndex()
 		r.entryFrames[currIdx].Logs = append(r.entryFrames[currIdx].Logs, log)
 	}
@@ -233,6 +258,7 @@ func (r *frameRecorder) onExit(
 	if len(r.activeEntryStack) > 0 {
 		currIdx := r.currentFrameIndex()
 		if r.entryFrames[currIdx].Depth == depth {
+			r.entryFrames[currIdx].ExitSeq = r.clock.now()
 			r.entryFrames[currIdx].GasUsed = gasUsed
 			r.entryFrames[currIdx].Reverted = reverted
 			r.entryFrames[currIdx].Status = !reverted && err == nil
@@ -264,9 +290,9 @@ func (r *frameRecorder) computeAssetDeltas(frameIdx int) {
 
 	// Collect logs emitted inside this frame directly from StateDB if available
 	if r.st != nil && frame.startLogCount <= len(r.st.Logs()) {
-		stLogs := r.st.Logs()[frame.startLogCount:]
-		frame.Logs = append(frame.Logs, stLogs...)
+		frame.Logs = append([]*types.Log(nil), r.st.Logs()[frame.startLogCount:]...)
 	}
+	frame.LogDigest = logsDigest(frame.Logs)
 
 	// 1. Native ETH balance changes for victims and attacker gains
 	if r.st != nil && frame.entryBalances != nil {

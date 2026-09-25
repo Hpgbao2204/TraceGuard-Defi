@@ -40,9 +40,19 @@ type scopedReadRecord struct {
 	Function      string `json:"function,omitempty"`
 	ObservedValue string `json:"observed_value,omitempty"`
 	V0Value       string `json:"v0_value,omitempty"`
+	ReturnedValue string `json:"returned_value,omitempty"`
 	IsRevert      bool   `json:"is_revert"`
 	FrameIndex    int    `json:"frame_index"`
+	Seq           uint64 `json:"seq"`
+	Kind          string `json:"kind"` // neutral, observed (isolation), sham
 }
+
+// Value modes for scoped reads.
+const (
+	valueNeutral  = "neutral"  // v0 on S0 (or explicit replacement / identity / dose)
+	valueObserved = "observed" // identity stub: the value the real call returns now
+	valueSham     = "sham"     // a different value at a read that is not the factor
+)
 
 type scopingManager struct {
 	enabled      bool
@@ -55,9 +65,12 @@ type scopingManager struct {
 	records      []scopedReadRecord
 	activeStubs  map[int][]stubRecord // depth -> LIFO stack of stub records
 	doseLambda   *float64             // optional dose-response lambda in [0, 1]
-	shamMode     bool                 // return observed value instead of v0
-	replacement  []byte               // optional explicit replacement for scoped reads
-	identity     bool                 // return the first ABI argument for one-argument reads
+	valueMode    string               // valueNeutral, valueObserved or valueSham
+	shamScale    float64              // sham value = observed word * shamScale
+	inScope      func() bool          // nil: every read; otherwise only while it returns true
+	clock        *eventClock
+	replacement  []byte // optional explicit replacement for scoped reads
+	identity     bool   // return the first ABI argument for one-argument reads
 }
 
 type stubRecord struct {
@@ -74,7 +87,7 @@ func newScopingManager(
 	header *types.Header,
 	chainConfig *params.ChainConfig,
 	doseLambda *float64,
-	shamMode bool,
+	valueMode string,
 	replacement []byte,
 	identity bool,
 ) *scopingManager {
@@ -88,10 +101,14 @@ func newScopingManager(
 	callerMap := make(map[common.Address]bool)
 	for _, v := range scopeCallers {
 		cleaned := strings.TrimSpace(strings.ToLower(v))
-		if cleaned != "" { callerMap[common.HexToAddress(cleaned)] = true }
+		if cleaned != "" {
+			callerMap[common.HexToAddress(cleaned)] = true
+		}
 	}
 	if len(callerMap) == 0 {
-		for v := range victimMap { callerMap[v] = true }
+		for v := range victimMap {
+			callerMap[v] = true
+		}
 	}
 	priceMap := make(map[common.Address]bool)
 	for _, p := range priceSources {
@@ -111,7 +128,9 @@ func newScopingManager(
 		records:      make([]scopedReadRecord, 0),
 		activeStubs:  make(map[int][]stubRecord),
 		doseLambda:   doseLambda,
-		shamMode:     shamMode,
+		valueMode:    valueMode,
+		shamScale:    0.5,
+		clock:        &eventClock{},
 		replacement:  replacement,
 		identity:     identity,
 	}
@@ -145,6 +164,45 @@ func (m *scopingManager) evaluateCallOnS0(from, to common.Address, input []byte,
 	}
 	ret, _, err := evalEVM.StaticCall(from, to, input, vm.NewGasBudget(gas, 0))
 	return ret, err
+}
+
+// evaluateObserved runs the read on a copy of the current state, which is what
+// the real call would return at this point.
+func (m *scopingManager) evaluateObserved(from, to common.Address, input []byte, gas uint64, st *state.StateDB) ([]byte, error) {
+	blockContext := core.NewEVMBlockContext(m.header, chainContext{header: m.header, config: m.chainConfig}, &m.header.Coinbase)
+	evalEVM := vm.NewEVM(blockContext, st.Copy(), m.chainConfig, vm.Config{})
+	if gas == 0 || gas > 5_000_000 {
+		gas = 5_000_000
+	}
+	ret, _, err := evalEVM.StaticCall(from, to, input, vm.NewGasBudget(gas, 0))
+	return ret, err
+}
+
+// perturbWords scales every 32-byte word of v by scale, and bumps a word that
+// would stay unchanged (0, or 1 at scale 0.5) by one, so the sham value always
+// differs from the observed value.
+func perturbWords(v []byte, scale float64) []byte {
+	out := make([]byte, len(v))
+	copy(out, v)
+	for off := 0; off+32 <= len(out); off += 32 {
+		w := new(big.Int).SetBytes(out[off : off+32])
+		f := new(big.Float).Mul(new(big.Float).SetInt(w), big.NewFloat(scale))
+		n, _ := f.Int(nil)
+		if n.Cmp(w) == 0 {
+			n.Add(w, big.NewInt(1))
+		}
+		b := n.Bytes()
+		if len(b) > 32 {
+			b = b[len(b)-32:]
+		}
+		word := make([]byte, 32)
+		copy(word[32-len(b):], b)
+		copy(out[off:off+32], word)
+	}
+	if len(out) < 32 {
+		out = append(out, 0x01)
+	}
+	return out
 }
 
 // makeReturnBytecode produces runtime EVM bytecode that returns the given data or reverts
@@ -238,54 +296,70 @@ func (m *scopingManager) onEnter(
 	if !m.enabled || len(input) < 4 {
 		return
 	}
-	// Condition 1: caller must be in victim set V
-	if !m.scopeCallers[from] {
+	if m.inScope != nil && !m.inScope() {
 		return
 	}
 	selector := hex.EncodeToString(input[:4])
-	// Condition 2: target or selector must be a price source
-	if !m.isPriceTarget(to, selector) {
-		return
+	// Neutral and observed modes act on the factor: a price read by V.
+	// Sham acts on a price read by anyone else, which is not the factor.
+	if m.valueMode == valueSham {
+		if m.scopeCallers[from] || m.victims[from] {
+			return
+		}
+		if _, found := knownPriceSelectors[selector]; !found {
+			return
+		}
+	} else {
+		if !m.scopeCallers[from] {
+			return
+		}
+		if !m.isPriceTarget(to, selector) {
+			return
+		}
 	}
 
 	// Read neutral value v0 on S0
 	v0, err := m.evaluateCallOnS0(from, to, input, gas)
 	isRevert := err != nil
 
-	valueToReturn := v0
-	if len(m.replacement) > 0 && !m.shamMode {
-		valueToReturn = append([]byte(nil), m.replacement...)
-	}
-	if m.identity && !m.shamMode && len(input) >= 36 {
-		valueToReturn = append([]byte(nil), input[4:36]...)
-	}
-	if m.doseLambda != nil && !isRevert {
-		// Evaluate observed value on current dirty state
-		blockContext := core.NewEVMBlockContext(m.header, chainContext{header: m.header, config: m.chainConfig}, &m.header.Coinbase)
-		evalEVM := vm.NewEVM(blockContext, st.Copy(), m.chainConfig, vm.Config{})
-		vObs, _, _ := evalEVM.StaticCall(from, to, input, vm.NewGasBudget(gas, 0))
-		if m.shamMode {
-			valueToReturn = vObs
-		} else {
+	// The value the real call would return here, recorded for every mode.
+	vObs, obsErr := m.evaluateObserved(from, to, input, gas, st)
+
+	var valueToReturn []byte
+	switch m.valueMode {
+	case valueObserved, valueSham:
+		isRevert = obsErr != nil
+		valueToReturn = vObs
+		if m.valueMode == valueSham && !isRevert {
+			valueToReturn = perturbWords(vObs, m.shamScale)
+		}
+	default:
+		valueToReturn = v0
+		if len(m.replacement) > 0 {
+			valueToReturn = append([]byte(nil), m.replacement...)
+		}
+		if m.identity && len(input) >= 36 {
+			valueToReturn = append([]byte(nil), input[4:36]...)
+		}
+		if m.doseLambda != nil && !isRevert {
 			valueToReturn = interpolateDoseResponse(vObs, v0, *m.doseLambda)
 		}
-	} else if m.shamMode {
-		blockContext := core.NewEVMBlockContext(m.header, chainContext{header: m.header, config: m.chainConfig}, &m.header.Coinbase)
-		evalEVM := vm.NewEVM(blockContext, st.Copy(), m.chainConfig, vm.Config{})
-		vObs, _, _ := evalEVM.StaticCall(from, to, input, vm.NewGasBudget(gas, 0))
-		valueToReturn = vObs
 	}
 
 	fnName := knownPriceSelectors[selector]
 	record := scopedReadRecord{
-		Depth:      depth,
-		Caller:     from.Hex(),
-		Target:     to.Hex(),
-		Selector:   "0x" + selector,
-		Function:   fnName,
-		V0Value:    "0x" + hex.EncodeToString(v0),
-		IsRevert:   isRevert,
-		FrameIndex: currentFrameIndex,
+		Depth:         depth,
+		Caller:        from.Hex(),
+		Target:        to.Hex(),
+		Selector:      "0x" + selector,
+		Function:      fnName,
+		V0Value:       "0x" + hex.EncodeToString(v0),
+		ObservedValue: "0x" + hex.EncodeToString(vObs),
+		IsRevert:      isRevert,
+		FrameIndex:    currentFrameIndex,
+		Seq:           m.clock.now(),
+		Kind:          m.valueMode,
+		ReturnedValue: "0x" + hex.EncodeToString(valueToReturn),
 	}
 	m.records = append(m.records, record)
 
@@ -315,13 +389,5 @@ func (m *scopingManager) onExit(depth int, output []byte, st *state.StateDB) {
 		delete(m.activeStubs, depth)
 	} else {
 		m.activeStubs[depth] = stack[:len(stack)-1]
-	}
-
-	// Update observed value in the last record at this depth if not yet populated.
-	for i := len(m.records) - 1; i >= 0; i-- {
-		if m.records[i].Depth == depth && m.records[i].ObservedValue == "" {
-			m.records[i].ObservedValue = "0x" + hex.EncodeToString(output)
-			break
-		}
 	}
 }

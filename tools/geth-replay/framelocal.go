@@ -1,3 +1,7 @@
+// LEGACY: not used for RQ3. The frame-local runner is tools/geth-replay/cmd/framelocal,
+// which holds attacker input fixed, gates consumption and CAUSE_BLOCKED by event
+// time, and applies per-token thresholds. This copy is kept only for comparison.
+
 package main
 
 import (
