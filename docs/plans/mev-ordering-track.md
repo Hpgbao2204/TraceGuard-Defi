@@ -1,165 +1,129 @@
-# Kế hoạch: TraceGuard-DeFi, phát hiện và ngăn chặn sandwich attack ở tầng builder
+# Kế hoạch: TraceGuard-DeFi, một khung counterfactual cho exploit và tấn công thứ tự
 
 Tài liệu giao việc cho phiên Claude Code trên cloud. Đọc hết trước khi code.
 Đọc thêm `CLAUDE.md` ở gốc repo để nắm cấu trúc và các lỗi đã biết.
 
-## 1. Câu chuyện của bài (framing)
+> **Thay đổi so với bản trước:** MEV/sandwich **không còn là trọng tâm**, mà là *phần mở rộng* của core idea gốc.
+> Bài có đúng **4 RQ**. Ưu tiên cao nhất bây giờ là **RQ3**: sửa các lỗi frame-local rồi chạy lại fixed-20.
 
-**Vấn đề.** Sandwich attack lấy giá trị của người dùng thường mỗi ngày. Các detector dựa trên hình dạng trace (mỗi giao dịch có bao nhiêu swap, pool nào, ai gửi) không phân biệt được sandwich với backrun arbitrage vô hại, nên:
-- chặn theo heuristic thì chặn nhầm luồng arbitrage hợp lệ, vốn giúp thị trường cân bằng giá;
-- không chặn thì người dùng mất tiền.
+## 1. Câu chuyện của bài
 
-**Luận điểm chính.** Một giao dịch có hại hay không nằm ở *hệ quả nhân quả lên victim*, không nằm ở hình dạng của nó. Câu hỏi đúng là:
+**Tên bài:** *TraceGuard-DeFi: Validity-Aware Screening and Counterfactual Replay for DeFi Exploits and Ordering Attacks*
 
-> "Nếu bỏ giao dịch X khỏi block, victim có nhận thêm tiền không?"
+**Core idea (giữ nguyên từ bản thảo gốc).** Việc một giao dịch có hại hay không được quyết định bởi *thiệt hại counterfactual lên victim*, đo bằng replay trên state có xác thực EIP-1186. Không dựa vào hình dạng trace. Có hai thành phần:
 
-Hệ thống trả lời câu hỏi đó bằng replay counterfactual trên state có xác thực, ngay tại thời điểm xây block.
+- **Stage 1: screener 3 view** (call structure, token flow, economic action), đã hiệu chỉnh, ngưỡng đóng băng theo ngân sách FPR. Dùng để xếp hạng ứng viên.
+- **Stage 2: replay counterfactual có cổng hợp lệ.** Chỉ đưa ra verdict khi so sánh được với baseline; không so sánh được thì fail-closed ra INCONCLUSIVE(lý do).
 
-**Hệ thống 2 lớp (phễu):**
+**Khái niệm hợp nhất: comparability confound.** Can thiệp làm thay đổi phần thực thi *không thuộc victim*, khiến thiệt hại counterfactual không quan sát được hoặc không so sánh được. Có hai dạng:
 
-1. **Lớp 1: screener nhanh (phát hiện).** Chạy trên mọi bundle hay giao dịch builder nhận được và gắn cờ ứng viên nghi là sandwich. Recall cao, chấp nhận báo động nhầm.
-2. **Lớp 2: kiểm tra thứ tự bằng counterfactual (xác nhận và ngăn chặn).** Với mỗi ứng viên, bỏ phần front-run rồi replay lại giao dịch của victim trên state hiện tại của block đang xây:
-   - victim nhận thêm ≥ ngưỡng → CAUSE → **loại bundle tấn công khỏi block** (ngăn chặn);
-   - victim không đổi → NO_EFFECT → giữ lại (không chặn nhầm arbitrage);
-   - không so sánh được → INCONCLUSIVE(lý do) → áp chính sách mặc định do builder chọn, và báo cáo riêng.
+| | Exploit giao thức (bản gốc) | Tấn công thứ tự / sandwich (mở rộng) |
+|---|---|---|
+| Can thiệp | Cố định giá trị victim đọc: `do_V(F:=v0)` (price pinning, flash suppression, guard restoration) | Bỏ giao dịch khỏi prefix của block: `do(drop tx)` |
+| Confound | **Revert confound:** script attacker revert và rollback toàn bộ | **Ordering confound:** giao dịch trung gian đổi kết quả hoặc revert, nonce bị hụt |
+| Cơ chế xử lý | Revert-origin attribution, frame-local replay | Báo cáo từng giao dịch trung gian, fail-closed khi thiếu state |
+| Điểm triển khai | Triage sau sự cố (chậm được) | Builder trước khi đưa vào block (cần nhanh) |
+| Claim | Quy trách nhiệm theo factor | Phát hiện và ngăn chặn **trong block do builder tham gia xây** |
 
-**Vị trí triển khai (phải ghi rõ trong bài):** trong builder hoặc private RPC/order-flow (giống MEV-Blocker, Flashbots Protect), là nơi *có quyền quyết định* đưa giao dịch nào vào block. Không claim chặn trên public mempool.
+**Không claim:** chặn trên public mempool; chống được mọi kẻ tấn công thích nghi; độ chính xác quy trách nhiệm trên toàn bộ corpus.
 
-**Claim chính xác (câu dùng trong abstract):**
+## 2. Bốn câu hỏi nghiên cứu
 
-> "TraceGuard prevents sandwich attacks in blocks assembled by a participating builder, while preserving benign backrun arbitrage, within the builder's per-slot latency budget."
+| RQ | Câu hỏi | Nguồn số liệu | Trạng thái |
+|---|---|---|---|
+| **RQ1** | Screener có xếp hạng được tấn công dưới FPR đóng băng không, và hình dạng trace bị giới hạn tới đâu? (split chuẩn, dịch chuyển thời gian và family, near-negative, ablation) | `eval/e1_*`, đã có trong bản thảo | Có số |
+| **RQ2** | Replay có xác thực có tái hiện đúng lịch sử và đủ nhanh cho builder không? | Fidelity: Nethermind 20/20 (đã có). Latency: `geth-replay -lean` | Chờ số lean |
+| **RQ3** | Dưới revert confound, can thiệp có phạm vi, revert-origin và frame-local cho ra bao nhiêu verdict hợp lệ trên fixed-20? | `tools/geth-replay/cmd/framelocal`, `eval/rq3/fixed20_cases.json` | **Phải sửa lỗi và chạy lại** |
+| **RQ4** | Can thiệp thứ tự có phát hiện và ngăn được sandwich mà không chặn nhầm arbitrage không? | Mô phỏng `eval/mev_sim/` (ground truth), cộng 10–30 case mainnet (shadow mode) | Mô phỏng có kết quả sơ bộ |
 
-Mỗi vế của câu này đều phải có thí nghiệm chứng minh (mục 4). Vế nào chưa đo được thì bỏ khỏi câu, không để nguyên.
-
-**Tính mới so với công trình trước.** Phát hiện và đo thiệt hại sandwich đã có (Qin et al. S&P 2022, Torres et al. USENIX Security 2021, Züst 2021, Wang et al. 2022, Heimbach & Wattenhofer 2022); MEV-Blocker và Flashbots Protect bảo vệ bằng cách giấu giao dịch. Điểm khác của mình:
-1. **Quyết định chặn dựa trên hệ quả nhân quả đo được** (replay counterfactual), không dựa trên heuristic hình dạng. Nhờ vậy dùng được cho mọi route: aggregator, multi-hop, Uniswap V3, token có phí chuyển.
-2. **Ordering confound và fail-closed.** Bỏ front-run thì các giao dịch nằm giữa cũng đổi theo. Hệ thống phát hiện và báo cáo trường hợp này thay vì đoán.
-3. **Phễu 2 lớp có số liệu:** lớp 1 rẻ nhưng nhầm nhiều, lớp 2 đắt nhưng chính xác. Đo được cả trade-off.
-
-## 2. Giới hạn môi trường cloud (quan trọng)
+## 3. Giới hạn môi trường cloud (quan trọng)
 
 - Repo là **public**. Không commit tên hay email tác giả, đường dẫn máy cá nhân, RPC key, dữ liệu, hay bản thảo paper.
-- Cloud **không có** dữ liệu local và **không có** RPC archive. Việc gì cần RPC thì chỉ viết script và test bằng dữ liệu giả; chủ repo tự chạy script đó ở máy local.
-- Việc tự làm trọn được trên cloud: code Go và Python, unit test, mô phỏng trên chain local (anvil không fork, không cần RPC).
-- Ngân sách khoảng 100 USD credit. Mỗi phiên làm một milestone. Cuối milestone: commit, test pass, mở PR, dừng lại tóm tắt.
+- Cloud **không có** dữ liệu local (`eval/results/`, context replay) và **không có** RPC. Việc gì cần dữ liệu thì viết code, test bằng fixture tổng hợp, rồi **đưa lệnh PowerShell** để chủ repo chạy trên Windows và dán output lại.
+- Lệnh cho chủ repo phải chạy từ gốc repo, xuất output vào `.cache/` (git-ignored), và in ra một bảng tóm tắt ngắn để dán lại.
+- Context replay trên máy chủ repo nằm ở `eval/results/m4/b2-contexts-fresh/<case>/`.
+- Ngân sách khoảng 100 USD credit. Mỗi phiên một work item. Cuối phiên: commit, test pass, mở PR, cập nhật bảng trạng thái, dừng lại tóm tắt.
 
-## 3. Milestones
+## 4. Work items (theo thứ tự ưu tiên)
 
-### M1: Can thiệp thứ tự trong engine Go
+### W1: RQ2, chế độ `-lean` và latency (PR #2)
 
-File: `tools/geth-replay/main.go`, vòng `for i, tx := range txs[:*targetIndex+1]`.
+- Đã có `-lean`. Việc còn lại là chủ repo chạy lệnh đo.
+- **Xong khi:** base-lean có `acceptance_gate=true` trên cả 3 context, output < 1 MB, có số `target_evm` ở chế độ lean.
 
-- Thêm cờ `-drop-tx <index>` (lặp lại được): bỏ giao dịch prefix có index đó. Các giao dịch còn lại giữ nguyên calldata.
-- Chạm vào account hoặc slot không có trong proof thì **fail-closed** và ghi lý do. Engine đã có `-replay-mode discovery` và `-extra-footprint` để lấy thêm state về sau.
-- Output bổ sung:
-  - `dropped_indices`
-  - status và gas của từng giao dịch prefix sau can thiệp, kèm cờ "khác baseline"
-  - danh sách giao dịch trung gian bị revert hoặc đổi kết quả (ordering confound)
-- **Đo thời gian thực thi** tách riêng khỏi thời gian tải context: chỉ tính phần EVM replay trong bộ nhớ. Ghi ra `timing_ms`. Số này là bằng chứng cho vế "latency budget".
-- Test Go bằng fixture tổng hợp: 3 giao dịch trên 1 pool.
+### W2: RQ3, sửa frame-local rồi chạy lại fixed-20 (ưu tiên cao nhất)
 
-**Xong khi:** `go test ./...` pass, có test cho các trường hợp drop, fail-closed, confound, và output có `timing_ms`.
+Runner chuẩn là `tools/geth-replay/cmd/framelocal` (bản đã bỏ `balanceOf` khỏi selector giá). Các file frame-local ở `tools/geth-replay/*.go` cấp trên và `tools/geth-replay-framelocal/` là bản cũ. Hợp nhất lại, hoặc ghi rõ là legacy và không dùng cho RQ3.
 
-### M2: Sổ thiệt hại và quyết định chặn (Python)
+Sửa trong `cmd/framelocal`:
+1. **Giữ cố định input của attacker:** so calldata, value và caller của frame victim đích với baseline. Khác nhau thì ra `INCONCLUSIVE(attacker_input_changed)`.
+2. **Sham thật:** thay bằng giá trị *khác* giá trị quan sát, nhưng ở một read không liên quan (ví dụ getter giá của pool không nằm trong harm frame). Thiệt hại phải không đổi.
+3. **Isolation:** so hash của log (address, topics, data), không chỉ so số lượng log.
+4. **CAUSE_BLOCKED** chỉ khi frame gốc gây revert thuộc victim `V` và xảy ra *sau* lần đọc bị can thiệp (theo thứ tự thời gian, không theo độ sâu).
+5. **Consumption:** lần đọc bị can thiệp phải nằm *bên trong* harm frame đích.
+6. **Ngưỡng verdict** khớp paper: `CAUSE` khi `L' <= L_min`; `PARTIAL` khi `L_min < L' <= (1-ρ)L` với ρ = 0.1; ngược lại `NO_EFFECT`. Ghi rõ thiệt hại theo từng token; không cộng lượng thô của các token khác nhau.
 
-- `core/mev/sandwich_harm.py`:
-  - Thiệt hại victim bằng `amountOut_cf - amountOut_obs`, lấy từ log `Transfer` gửi tới recipient của victim.
-  - Quy đổi USD theo giá tại `b-1`.
-- `core/mev/policy.py`: hàm quyết định `INCLUDE / EXCLUDE / DEFAULT(reason)` theo verdict CAUSE / NO_EFFECT / INCONCLUSIVE, ngưỡng cấu hình được.
-- Control:
-  - **Placebo:** bỏ một giao dịch không liên quan tới pool, phải ra NO_EFFECT.
-  - **Backrun-only:** bỏ giao dịch nằm sau victim, phải ra NO_EFFECT.
-- Unit test bằng JSON giả cùng định dạng output của geth-replay.
+Runner mới `eval/rq3/run_fixed20.py`:
+- Đọc `eval/rq3/fixed20_cases.json` (victim/attacker đã đóng băng).
+- Với mỗi case chạy: whole-tx có read-site scoping, frame-local, isolation, sham. Dùng chế độ output gọn.
+- Ghi SHA-256 của manifest đầu vào vào output trước khi chạy.
+- Xuất `.cache/rq3/summary.json` gồm verdict từng case, lý do INCONCLUSIVE, phân bố revert-origin, tỉ lệ pass của isolation/sham, kèm Wilson CI. In bảng tóm tắt.
+- Unit test bằng fixture tổng hợp.
 
-**Xong khi:** pytest pass cho mọi nhánh verdict và mọi nhánh policy.
+**Xong khi:** `go test ./...` và pytest pass; có lệnh PowerShell để chủ repo chạy fixed-20 và dán bảng tóm tắt.
 
-### M3: Mô phỏng builder và mempool end-to-end (chạy được trên cloud)
+### W3: RQ4 phần mô phỏng (PR #3, `eval/mev_sim/`)
 
-Đây là phần demo "ngăn chặn" chạy thật, có ground truth.
+Đã có: seed 7, 200 slot, chặn 227/227 sandwich, chặn nhầm 7/409 benign. Việc còn lại:
+1. Rebase PR #3 lên `main` mới. Giải quyết conflict ở bảng trạng thái trong tài liệu này.
+2. **Phân tích 7 ca chặn nhầm:** victim revert khi bỏ front-run. Theo taxonomy, đây phải là ordering confound, ra DEFAULT, *không phải* EXCLUDE. Sửa policy nếu đang coi là EXCLUDE, báo cáo lại số.
+3. **Kẻ tấn công thích nghi**, mỗi kiểu báo tỉ lệ chặn riêng: chia nhỏ front-run, đổi địa chỉ, đi qua router, multi-pool, chèn giao dịch mồi.
+4. **Baseline heuristic hình dạng:** chặn mọi mẫu front-victim-back. So tỉ lệ chặn nhầm với TraceGuard.
+5. Chạy nhiều seed (ví dụ 5 seed), báo trung bình và CI.
+6. Latency trong mô phỏng là thời gian RPC của anvil, **không dùng cho claim latency**. Claim latency lấy từ W1.
 
-- anvil không fork, deploy Uniswap V2 (factory, pair, 2 token ERC-20), có thể thêm một pool V3.
-- **Mempool giả lập:** một hàng đợi giao dịch có timestamp. Gồm người dùng thường, bot arbitrage vô hại, và bot sandwich. Seed cố định.
-- **Builder giả lập:** mỗi slot lấy giao dịch từ mempool, xây block ứng viên, chạy lớp 1 rồi lớp 2, loại bundle bị EXCLUDE, và ghi lại quyết định cùng thời gian xử lý.
-- **Ground truth:** thiệt hại victim tính bằng công thức `x*y=k` (phí 0.3%); nhãn sandwich hay vô hại biết trước vì do mình sinh.
-- **Kẻ tấn công thích nghi** (bắt buộc có, reviewer sẽ hỏi):
-  - chia nhỏ front-run
-  - đổi địa chỉ giữa front-run và back-run
-  - đi qua router hoặc aggregator
-  - sandwich multi-pool
-  - chèn giao dịch mồi để tạo ordering confound
-- **Đo:**
-  - tỉ lệ sandwich bị chặn
-  - tổng thiệt hại người dùng tránh được, so với builder không có filter
-  - tỉ lệ arbitrage vô hại bị chặn nhầm
-  - latency lớp 1 và lớp 2 mỗi slot, so với ngân sách slot 12 giây (và một ngân sách chặt hơn, ví dụ 500 ms)
-  - so sánh với baseline chỉ dùng heuristic hình dạng (chặn mọi mẫu "front-victim-back")
-- Output: `eval/mev_sim/results.json` (git-ignored) và bảng tóm tắt.
+### W4: RQ4 phần mainnet nhỏ (cloud viết code, chủ repo chạy)
 
-**Xong khi:** chạy trọn một lệnh, ra đủ các số trên, test pass.
+- `eval/mev/acquire_sandwiches.py`: heuristic kiểu mev-inspect trên K block chọn ngẫu nhiên, seed cố định. Kèm backrun-arbitrage và swap thường trong cùng block làm control.
+- Dựng context `eth_getProof` cho prefix `0..victim_idx`, dùng lại pipeline dựng context B2.
+- **Commit hash manifest trước khi replay.** Mục tiêu 10–30 sandwich. Báo cáo đủ mẫu số.
+- `eval/mev/evaluate.py`: verdict, USD tránh được, tỉ lệ chặn nhầm trên control, tần suất ordering confound, Wilson CI.
 
-### M4: Lấy dữ liệu sandwich thật (viết script, máy local chạy)
+### W5: Script vẽ hình
 
-- `eval/mev/acquire_sandwiches.py`, nhận RPC qua biến môi trường:
-  - Phát hiện theo heuristic kiểu mev-inspect-py (cùng searcher hoặc contract ở 2 phía, cùng pool, victim nằm giữa, hướng swap ngược nhau).
-  - Kiểm tra chéo với nguồn nhãn công khai (ZeroMEV, EigenPhi) nếu truy cập được.
-  - Lấy thêm backrun arbitrage và swap thường *trong cùng các block đó* làm control.
-- Script dựng context replay: proof `eth_getProof` tại `b-1` cho prefix `0..victim_idx`, dùng lại pipeline dựng context B2 có sẵn.
-- Test bằng RPC giả lập (mock). Không gọi mạng trong test.
+`eval/plots/` sinh mọi hình trong paper từ JSON kết quả. Mỗi hình một hàm, xuất PDF vector, font 8–9 pt, rộng 0.48 hoặc 0.95 `\textwidth`:
 
-### M5: Đánh giá "shadow mode" trên mainnet (code trên cloud, chạy ở local)
+1. `fig_prcurve.pdf` (RQ1): đã có, giữ.
+2. `fig_latency.pdf` (RQ2): so sánh latency full-trace và lean (bar hoặc CDF).
+3. `fig_rq3_verdicts.pdf` (RQ3): verdict whole-tx và frame-local xếp chồng, kèm lý do INCONCLUSIVE.
+4. `fig_rq4_sim.pdf` (RQ4): tỉ lệ chặn và chặn nhầm theo kiểu tấn công, so TraceGuard với heuristic hình dạng.
 
-Câu hỏi: *"Nếu một builder đã dùng TraceGuard trong khoảng thời gian X, nó sẽ chặn được gì và chặn nhầm gì?"*
+## 5. Bảng đối chiếu claim với bằng chứng
 
-- **Lấy mẫu chống cherry-pick:** chọn ngẫu nhiên K block trong khoảng thời gian cố định, seed cố định; lấy *tất cả* sandwich và control trong các block đó. **Ghi hash của manifest vào commit trước khi chạy replay.**
-- **Báo cáo đủ mẫu số:** số ứng viên, số dựng được context, số replay khớp baseline, số ra verdict, số INCONCLUSIVE theo từng lý do. Không bỏ case nào.
-- **Đo:**
-  - recall chặn trên sandwich thật
-  - tỉ lệ chặn nhầm trên arbitrage và swap thường
-  - thiệt hại USD tránh được, so với nhãn và ước lượng công thức AMM của nguồn công khai
-  - tần suất ordering confound
-  - latency lớp 2 đo ở M1, cộng giả định builder đã có sẵn state
-  - Wilson CI cho mọi tỉ lệ
-- `eval/mev/evaluate.py` xuất JSON.
-
-### M6: Phễu 2 lớp
-
-- Chấm cùng tập dữ liệu M5 bằng screener lớp 1.
-- Cho thấy: lớp 1 một mình chặn nhầm nhiều arbitrage; thêm lớp 2 giảm chặn nhầm mà vẫn giữ recall; chi phí latency tăng bao nhiêu.
-- Vẽ đường trade-off theo ngưỡng của lớp 1.
-
-## 4. Bảng đối chiếu claim với bằng chứng (dùng khi viết paper)
-
-| Claim trong bài | Bằng chứng bắt buộc | Nếu chưa có |
+| Claim | Bằng chứng bắt buộc | Nếu chưa có |
 |---|---|---|
-| Phát hiện sandwich | Recall lớp 1 và lớp 2 trên mainnet (M5, M6) | Chỉ nói "trên mô phỏng" |
-| Ngăn chặn | Builder giả lập loại bundle, đo thiệt hại tránh được (M3); shadow mode trên mainnet (M5) | Đổi thành "cho phép builder ngăn chặn" |
-| Không chặn nhầm arbitrage | Tỉ lệ chặn nhầm có CI (M3, M5) | Không claim |
-| Trong ngân sách latency | `timing_ms` thực đo (M1, M3) | Bỏ vế latency khỏi abstract |
-| Chống được kẻ tấn công thích nghi | Các kịch bản thích nghi ở M3 | Ghi là limitation |
-| Không cherry-pick | Hash manifest commit trước khi chạy, đủ mẫu số (M5) | Không nộp |
-
-## 5. Các lỗi hiện có phải sửa trước hoặc song song
-
-1. `tools/geth-replay/scoping.go` đang coi `balanceOf(address)` là price selector. Tách thành factor riêng hoặc bỏ.
-2. Frame-local không kiểm tra calldata attacker gửi victim có giống baseline không. Thêm kiểm tra; không khớp thì ra INCONCLUSIVE.
-3. Sham phải thay bằng giá trị *khác thật* nhưng không liên quan. Isolation phải so hash log, không chỉ so số lượng.
-4. CAUSE_BLOCKED phải kiểm tra frame gây revert thuộc victim.
+| Screener xếp hạng dưới FPR đóng băng | RQ1 (đã có) | — |
+| Replay tái hiện đúng lịch sử | RQ2 fidelity (đã có) | — |
+| Đủ nhanh cho builder | `target_evm` ở chế độ lean (W1) | Bỏ khỏi abstract |
+| Frame-local tăng số verdict hợp lệ | RQ3 sau khi sửa (W2) | Báo cáo coverage thấp một cách trung thực |
+| Ngăn sandwich, không chặn nhầm arbitrage | W3 mô phỏng cộng W4 mainnet | Chỉ nói "trên mô phỏng" |
+| Chống kẻ tấn công thích nghi | W3 mục 3 | Ghi là limitation |
+| Không cherry-pick | Hash manifest commit trước khi chạy (W2, W4) | Không nộp số đó |
 
 ## 6. Quy tắc làm việc
 
-- Mỗi milestone đi trên một branch, mở PR, mô tả rõ đã test gì.
+- Mỗi work item một branch, mở PR, mô tả rõ đã test gì.
 - Không sửa số liệu cũ để "cho khớp". Số nào chưa đo thì ghi là chưa đo.
 - Test phải chạy được khi không có dữ liệu local; test nào cần dữ liệu thì `skip` kèm lý do.
-- Cuối mỗi phiên: cập nhật bảng "Trạng thái" bên dưới.
+- Cuối mỗi phiên: cập nhật bảng trạng thái bên dưới.
 
 ## 7. Trạng thái
 
-| Milestone | Trạng thái | Ghi chú |
+| Work item | Trạng thái | Ghi chú |
 |---|---|---|
-| M1 | xong (chờ review PR) | `-drop-tx`, fail-closed, `ordering_intervention`, `timing_ms`; test tổng hợp 1 pool 3 giao dịch trong `tools/geth-replay/ordering_test.go`. Chưa chạy trên context mainnet thật. |
-| M2 | chưa bắt đầu | |
-| M3 | chưa bắt đầu | demo ngăn chặn, làm được hoàn toàn trên cloud |
-| M4 | chưa bắt đầu | cần RPC, chạy ở local |
-| M5 | chưa bắt đầu | cần RPC, chạy ở local |
-| M6 | chưa bắt đầu | |
-| Sửa lỗi mục 5 | chưa bắt đầu | |
+| M1 `-drop-tx` | xong, đã merge (PR #1) | Chạy trên 3 context thật: comparable đúng; exchangeissuance bị nonce gap nên ra incomparable, đúng mong đợi |
+| W1 `-lean` | PR #2, chờ chủ repo đo | |
+| W2 RQ3 sửa frame-local | chưa bắt đầu | **ưu tiên cao nhất** |
+| W3 RQ4 mô phỏng | PR #3, kết quả sơ bộ | seed 7, 200 slot: chặn 227/227 sandwich, chặn nhầm 7/409 benign (victim revert khi bỏ front-run); latency là thời gian RPC của anvil; chưa có pool V3 |
+| W4 RQ4 mainnet | chưa bắt đầu | cần RPC, chạy ở local |
+| W5 hình | chưa bắt đầu | |
