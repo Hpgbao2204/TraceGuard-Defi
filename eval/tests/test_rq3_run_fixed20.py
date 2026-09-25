@@ -180,6 +180,8 @@ def test_dose_modes(tmp_path, monkeypatch, capsys):
         out = fake_output(mode)
         if "-dose-lambda" in a and mode == "frame-local":
             out["frame_local_result"] = {"verdict": "PARTIAL"}
+        if "-dose-lambda" in a and mode == "whole-tx":
+            out["whole_tx_result"] = {"verdict": "CAUSE_BLOCKED"}
         Path(a[a.index("-output") + 1]).write_text(json.dumps(out), encoding="utf-8")
         return subprocess.CompletedProcess(a, 0, "", "")
 
@@ -190,5 +192,7 @@ def test_dose_modes(tmp_path, monkeypatch, capsys):
     assert doc["cases"]["case-a"]["frame-local@0.5"]["verdict"] == "PARTIAL"
     assert doc["summary"]["modes"]["whole-tx@0.5"]["n"] == 1
     assert "dose-response" in capsys.readouterr().out
+    assert rf.main(["--render", str(out / "summary.json")]) == 0
+    assert "CB/P" in capsys.readouterr().out
     with pytest.raises(SystemExit):
         rf.main(["--exe", str(exe), "--manifest", str(manifest), "--contexts", str(contexts), "--out", str(out), "--dose", "1"])

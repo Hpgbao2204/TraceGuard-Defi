@@ -240,7 +240,7 @@ def render_table(per_case: dict[str, dict[str, dict[str, Any]]], summary: dict[s
         lams = sorted({m.split("@")[1] for m in dose}, key=float)
         lines.append(f"{'case':34} " + " ".join(f"{'l=' + lam:>10}" for lam in lams))
         for name, recs in per_case.items():
-            if all(recs.get(f"whole-tx@{lam}", {}).get("reason", "").startswith("no_declared_factor") for lam in lams):
+            if all((recs.get(f"whole-tx@{lam}", {}).get("reason") or "").startswith("no_declared_factor") for lam in lams):
                 continue
             cells = []
             for lam in lams:
@@ -256,7 +256,7 @@ def render_table(per_case: dict[str, dict[str, dict[str, Any]]], summary: dict[s
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--exe", required=True, help="built cmd/framelocal binary")
+    ap.add_argument("--exe", help="built cmd/framelocal binary (required unless --render)")
     ap.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     ap.add_argument("--contexts", type=Path, default=DEFAULT_CONTEXTS)
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
@@ -266,9 +266,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--timeout", type=int, default=900, help="seconds per run")
     ap.add_argument("--factors", type=Path, default=None,
                     help="frozen per-case factors from eval.rq3.discover_factors; without it the price-selector catalogue is used")
+    ap.add_argument("--render", type=Path, default=None,
+                    help="only re-print the tables from an existing summary.json")
     ap.add_argument("--dose", default="", help="comma-separated lambdas in (0,1) for dose-response, e.g. 0.25,0.5,0.75")
     args = ap.parse_args(argv)
 
+    if args.render is not None:
+        doc = json.loads(args.render.read_text(encoding="utf-8"))
+        print(f"manifest sha256 {doc.get('manifest_sha256')}")
+        print(render_table(doc["cases"], doc["summary"]))
+        return 0
+    if not args.exe:
+        ap.error("--exe is required")
     args.out.mkdir(parents=True, exist_ok=True)
     manifest_sha = sha256_text(args.manifest)
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
