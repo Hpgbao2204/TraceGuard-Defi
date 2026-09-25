@@ -29,6 +29,8 @@ type callTreeNode struct {
 	Error       string
 	ParentIndex int
 	Children    []*callTreeNode
+	EnterSeq    uint64
+	ExitSeq     uint64
 }
 
 type revertClassifier struct {
@@ -37,6 +39,7 @@ type revertClassifier struct {
 	scopedReads  []scopedReadRecord
 	nodes        []*callTreeNode
 	currentStack []*callTreeNode
+	clock        *eventClock
 }
 
 func newRevertClassifier(
@@ -64,6 +67,7 @@ func newRevertClassifier(
 		scopedReads:  scopedReads,
 		nodes:        make([]*callTreeNode, 0),
 		currentStack: make([]*callTreeNode, 0),
+		clock:        &eventClock{},
 	}
 }
 
@@ -82,6 +86,7 @@ func (c *revertClassifier) onEnter(depth int, from, to common.Address) {
 		To:          to,
 		ParentIndex: parentIdx,
 		Children:    make([]*callTreeNode, 0),
+		EnterSeq:    c.clock.now(),
 	}
 	c.nodes = append(c.nodes, node)
 	if parentNode != nil {
@@ -95,6 +100,7 @@ func (c *revertClassifier) onExit(depth int, err error, reverted bool) {
 		top := c.currentStack[len(c.currentStack)-1]
 		if top.Depth == depth {
 			top.Reverted = reverted
+			top.ExitSeq = c.clock.now()
 			if err != nil {
 				top.Error = err.Error()
 			}
@@ -128,11 +134,29 @@ func (c *revertClassifier) classify(txFailed bool, txRevertReason string) revert
 		}
 	}
 
-	// Start from root node.
+	return c.classifyFrom(c.nodes[0], txRevertReason)
+}
+
+// classifyFrame attributes the revert of the call that started at enterSeq
+// (the target entry frame in frame-local mode). Only scoped reads inside that
+// frame and before the revert count.
+func (c *revertClassifier) classifyFrame(enterSeq uint64) revertOriginResult {
+	for _, n := range c.nodes {
+		if n.EnterSeq == enterSeq {
+			if !n.Reverted {
+				return revertOriginResult{HasRevert: false}
+			}
+			return c.classifyFrom(n, "")
+		}
+	}
+	return revertOriginResult{HasRevert: false, OriginClass: "unknown"}
+}
+
+func (c *revertClassifier) classifyFrom(start *callTreeNode, txRevertReason string) revertOriginResult {
 	// NOTE: This traversal is greedy — it follows the *first* reverted child at each
 	// level. In Solidity try/catch patterns, multiple siblings may have reverted;
 	// the MultipleRevertsAtDepth field is set to signal such ambiguity.
-	curr := c.nodes[0]
+	curr := start
 	multipleRevertsAtDepth := false
 	for {
 		var revertedChild *callTreeNode
@@ -160,10 +184,16 @@ func (c *revertClassifier) classify(txFailed bool, txRevertReason string) revert
 		errorMsg = txRevertReason
 	}
 
-	// Check if any scoped read happened before this revert
+	// A scoped read counts only if it happened inside the start frame and
+	// before the origin frame reverted (event-clock order, not call depth).
+	// A frame that never exited (ExitSeq 0) is treated as still open.
 	readBeforeRevert := false
+	revertAt := curr.ExitSeq
+	if revertAt == 0 {
+		revertAt = ^uint64(0)
+	}
 	for _, sr := range c.scopedReads {
-		if sr.Depth <= curr.Depth {
+		if sr.Seq > start.EnterSeq && sr.Seq < revertAt {
 			readBeforeRevert = true
 			break
 		}

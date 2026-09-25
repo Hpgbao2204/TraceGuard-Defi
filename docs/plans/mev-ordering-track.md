@@ -123,7 +123,7 @@ Runner mới `eval/rq3/run_fixed20.py`:
 |---|---|---|
 | M1 `-drop-tx` | xong, đã merge (PR #1) | Chạy trên 3 context thật: comparable đúng; exchangeissuance bị nonce gap nên ra incomparable, đúng mong đợi |
 | W1 `-lean` | PR #2, chờ chủ repo đo | |
-| W2 RQ3 sửa frame-local | chưa bắt đầu | **ưu tiên cao nhất** |
+| W2 RQ3 sửa frame-local | PR mở, chờ chủ repo chạy fixed-20 | Đã sửa 6 điểm trong `cmd/framelocal` + lỗi đếm Transfer hai lần; runner `eval/rq3/run_fixed20.py`. Mặc định L_min = 1% L theo từng token, ρ = 0.1 (cần đối chiếu với paper) |
 | W3 RQ4 mô phỏng | PR #3, kết quả sơ bộ | seed 7, 200 slot: chặn 227/227 sandwich, chặn nhầm 7/409 benign (victim revert khi bỏ front-run); latency là thời gian RPC của anvil; chưa có pool V3 |
 | W4 RQ4 mainnet | chưa bắt đầu | cần RPC, chạy ở local |
 | W5 hình | chưa bắt đầu | |
