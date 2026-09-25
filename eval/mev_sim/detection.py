@@ -119,6 +119,7 @@ class Verdict:
     out_cf: int | None = None
     confounded: list[int] = field(default_factory=list)
     post_changed: list[int] = field(default_factory=list)
+    confound_kind: str = ""         # victim_reverted | intermediate_changed (ordering confound only)
 
 
 @dataclass
@@ -138,8 +139,9 @@ def layer2(obs: list[Receipt], run_cf: Callable[[list[int]], list[Receipt]], vic
     keep = [k for k in range(len(obs)) if k not in set(drop)]
     cf_list = run_cf(keep)
     cf = dict(zip(keep, cf_list))
-    if cf[vi].status != 1:
-        return Verdict(INCONCLUSIVE, "victim_reverted_cf", token=token, out_obs=out_obs)
+    if cf[vi].status != 1:  # the victim's own outcome is not observable without the drop set
+        return Verdict(INCONCLUSIVE, "ordering_confound", token=token, out_obs=out_obs,
+                       confound_kind="victim_reverted")
     out_cf = net_inflow(cf[vi], victim_sender, pools).get(token, 0)
     harm = out_cf - out_obs
     first = min(drop)
@@ -147,19 +149,24 @@ def layer2(obs: list[Receipt], run_cf: Callable[[list[int]], list[Receipt]], vic
     post_changed = [k for k in keep if k > vi and cf[k].status != obs[k].status]
     v = Verdict(NO_EFFECT, "", harm, token, out_obs, out_cf, confounded, post_changed)
     if confounded:
-        v.verdict, v.reason = INCONCLUSIVE, "ordering_confound"
+        v.verdict, v.reason, v.confound_kind = INCONCLUSIVE, "ordering_confound", "intermediate_changed"
     elif harm >= max(thr.abs, thr.rel * out_cf):
         v.verdict = CAUSE
     return v
 
 
 # ------------------------------------------------------------------ policy
-INCLUDE, EXCLUDE = "INCLUDE", "EXCLUDE"
+INCLUDE, EXCLUDE, DEFAULT = "INCLUDE", "EXCLUDE", "DEFAULT"
 
 
-def decide(verdict: str, default_on_inconclusive: str) -> str:
+def decide(verdict: str) -> str:
+    """CAUSE -> EXCLUDE, NO_EFFECT -> INCLUDE, INCONCLUSIVE -> DEFAULT (the builder's own policy)."""
     if verdict == CAUSE:
         return EXCLUDE
     if verdict == NO_EFFECT:
         return INCLUDE
-    return default_on_inconclusive
+    return DEFAULT
+
+
+def resolve(decision: str, default_policy: str) -> str:
+    return default_policy if decision == DEFAULT else decision

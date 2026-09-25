@@ -5,8 +5,8 @@ import pytest
 
 from eval.mev_sim.amm import AmmModel, SwapOp, amount_out, victim_harm
 from eval.mev_sim.chain import TOPIC_SWAP, TOPIC_TRANSFER, Receipt, find_anvil
-from eval.mev_sim.detection import (CAUSE, EXCLUDE, INCLUDE, INCONCLUSIVE, NO_EFFECT, Thresholds, decide,
-                                    heuristic_naive, heuristic_strict, layer1, layer2)
+from eval.mev_sim.detection import (CAUSE, DEFAULT, EXCLUDE, INCLUDE, INCONCLUSIVE, NO_EFFECT, Thresholds, decide,
+                                    heuristic_naive, heuristic_strict, layer1, layer2, resolve)
 from eval.mev_sim.metrics import wilson
 
 T0, T1 = "0x" + "a" * 40, "0x" + "b" * 40
@@ -115,22 +115,25 @@ def test_layer2_ordering_confound():
     cf = {1: rc_plain(T1, ATK2, ATK, 45, status=0), 2: rc_swap(V, P, True, 10, 9), 3: obs[3]}
     v = layer2(obs, _cf(cf), V, 2, [0], POOLS, Thresholds())
     assert (v.verdict, v.reason, v.confounded, v.harm) == (INCONCLUSIVE, "ordering_confound", [1], 1)
+    assert v.confound_kind == "intermediate_changed" and decide(v.verdict) == DEFAULT
 
 
 def test_layer2_victim_reverts_and_no_output():
     obs = sandwich_obs()
     v = layer2(obs, _cf({1: Receipt(0, [], 1), 2: obs[2]}), V, 1, [0], POOLS, Thresholds())
-    assert (v.verdict, v.reason) == (INCONCLUSIVE, "victim_reverted_cf")
+    assert (v.verdict, v.reason, v.confound_kind) == (INCONCLUSIVE, "ordering_confound", "victim_reverted")
+    assert decide(v.verdict) == DEFAULT
     obs2 = [obs[0], Receipt(1, [], 1), obs[2]]
     v2 = layer2(obs2, _cf({}), V, 1, [0], POOLS, Thresholds())
     assert (v2.verdict, v2.reason) == (INCONCLUSIVE, "no_victim_output")
 
 
 def test_policy_branches():
-    assert decide(CAUSE, INCLUDE) == EXCLUDE
-    assert decide(NO_EFFECT, EXCLUDE) == INCLUDE
-    assert decide(INCONCLUSIVE, INCLUDE) == INCLUDE
-    assert decide(INCONCLUSIVE, EXCLUDE) == EXCLUDE
+    assert decide(CAUSE) == EXCLUDE
+    assert decide(NO_EFFECT) == INCLUDE
+    assert decide(INCONCLUSIVE) == DEFAULT
+    assert resolve(DEFAULT, INCLUDE) == INCLUDE and resolve(DEFAULT, EXCLUDE) == EXCLUDE
+    assert resolve(EXCLUDE, INCLUDE) == EXCLUDE and resolve(INCLUDE, EXCLUDE) == INCLUDE
 
 
 def test_wilson():
@@ -180,5 +183,11 @@ def test_end_to_end_decisions_follow_policy(sim):
         if b["verdict"] is None:
             assert b["status"] != "excluded"
         elif b["status"] in ("included", "excluded"):
-            want = decide(b["verdict"], EXCLUDE)
+            assert b["decision"] == decide(b["verdict"])
+            want = resolve(b["decision"], EXCLUDE)
             assert b["status"] == ("excluded" if want == EXCLUDE else "included")
+
+
+def test_end_to_end_benign_never_excluded_on_cause(sim):
+    for mode in ("tg_open", "tg_closed"):
+        assert not any(not b["attack"] and b["decision"] == EXCLUDE for b in _bundles(sim, mode))

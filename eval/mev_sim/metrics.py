@@ -51,7 +51,15 @@ def summarize(slots: list[dict], harm_none_a: float | None = None) -> dict:
 
     per_slot = [s["l1_ms"] + s["l2_ms"] for s in slots]
     l2_bundle = [b["l2_ms"] for b in bundles if b["verdict"]]
-    verdicts = Counter((b["verdict"], b["reason"] or "") for b in bundles if b["verdict"])
+    verdicts = Counter((b["verdict"], b["confound_kind"] or b["reason"] or "") for b in bundles if b["verdict"])
+
+    def by_decision(group: list[dict]) -> dict:
+        """Layer-2 policy outputs: EXCLUDE on CAUSE, and DEFAULT with how the builder resolved it."""
+        return {"exclude_on_cause": rate(sum(b["decision"] == "EXCLUDE" for b in group), len(group)),
+                "default": rate(sum(b["decision"] == "DEFAULT" for b in group), len(group)),
+                "default_then_excluded": sum(b["decision"] == "DEFAULT" and b["status"] == "excluded"
+                                             for b in group)}
+
     out = {
         "slots": len(slots),
         "users": sum(s["n_users"] for s in slots),
@@ -63,6 +71,8 @@ def summarize(slots: list[dict], harm_none_a: float | None = None) -> dict:
                                         for v, bs in sorted(by_variant.items())},
         "sandwiches_landed": len(landed),
         "victim_harm_realized_A": round(harm_a, 6),
+        "sandwich_decisions": by_decision(sand),
+        "benign_decisions": by_decision(benign),
         "benign_blocked": rate(sum(b["status"] == "excluded" for b in benign), len(benign)),
         "benign_blocked_by_kind": {k: rate(sum(b["status"] == "excluded" for b in bs), len(bs))
                                    for k, bs in sorted(by_kind.items())},
@@ -91,11 +101,14 @@ def summarize(slots: list[dict], harm_none_a: float | None = None) -> dict:
 
 
 def table(summary: dict) -> str:
-    rows = [("mode", "sandw.blocked", "benign blocked", "landed", "harm A", "avoided %",
-             "filter ms/slot p95", "L2 ms/bundle p95")]
+    rows = [("mode", "sandw.blocked", "benign blocked", "benign EXCLUDE", "benign DEFAULT", "landed", "harm A",
+             "avoided %", "filter ms/slot p95", "L2 ms/bundle p95")]
     for mode, s in summary.items():
         sb, bb, lat = s["sandwich_blocked"], s["benign_blocked"], s["latency_ms"]
-        rows.append((mode, f"{sb['k']}/{sb['n']}", f"{bb['k']}/{bb['n']}", str(s["sandwiches_landed"]),
+        bd = s["benign_decisions"]
+        rows.append((mode, f"{sb['k']}/{sb['n']}", f"{bb['k']}/{bb['n']}",
+                     f"{bd['exclude_on_cause']['k']}/{bd['exclude_on_cause']['n']}",
+                     f"{bd['default']['k']}/{bd['default']['n']}", str(s["sandwiches_landed"]),
                      f"{s['victim_harm_realized_A']:.4f}", str(s.get("victim_harm_avoided_pct", "")),
                      str(lat["per_slot_filter_p95"]), str(lat["per_bundle_layer2_p95"] or "")))
     widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]

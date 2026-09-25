@@ -5,8 +5,8 @@ Filter modes:
   heur_strict  exclude bundles matching the mev-inspect-style sandwich shape
   heur_naive   exclude every front-victim-back shape
   l1_only      exclude everything layer 1 flags
-  tg_open      layer 1 then layer 2; INCONCLUSIVE -> include (fail-open)
-  tg_closed    layer 1 then layer 2; INCONCLUSIVE -> exclude (fail-closed)
+  tg_open      layer 1 then layer 2; DEFAULT (INCONCLUSIVE) -> include (fail-open)
+  tg_closed    layer 1 then layer 2; DEFAULT (INCONCLUSIVE) -> exclude (fail-closed)
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from .agents import Bundle, SimTx
 from .amm import AmmModel, victim_harm
 from .chain import Receipt, World
 from .detection import (EXCLUDE, INCLUDE, Thresholds, decide, heuristic_naive, heuristic_strict, layer1,
-                        layer2)
+                        layer2, resolve)
 
 MODES = ("none", "heur_strict", "heur_naive", "l1_only", "tg_open", "tg_closed")
 
@@ -39,6 +39,8 @@ class BundleRecord:
     reason: str | None = None
     harm_l2: int | None = None
     confounded: list[int] = field(default_factory=list)
+    confound_kind: str = ""
+    decision: str | None = None    # layer-2 policy output: INCLUDE | EXCLUDE | DEFAULT
     gt_harm: int | None = None     # x*y=k ground truth, victim output token units
     gt_harm_a: float | None = None # same, in token-A units at the pre-bundle mid price
     sim_ms: float = 0.0
@@ -137,7 +139,8 @@ class Builder:
                 rec.l2_ms = (time.perf_counter() - t0) * 1e3
                 l2_total += rec.l2_ms
                 rec.verdict, rec.reason, rec.harm_l2, rec.confounded = v.verdict, v.reason, v.harm, v.confounded
-                decision = decide(v.verdict, INCLUDE if self.mode == "tg_open" else EXCLUDE)
+                rec.confound_kind, rec.decision = v.confound_kind, decide(v.verdict)
+                decision = resolve(rec.decision, INCLUDE if self.mode == "tg_open" else EXCLUDE)
                 snap = self.rpc.snapshot()
                 if decision == INCLUDE:        # re-apply the observed bundle on the prefix
                     again = self._exec(b.txs)

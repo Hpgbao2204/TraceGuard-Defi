@@ -55,15 +55,17 @@ one with any reverting tx is dropped (`invalid`). Remaining user txs are appende
 | `heur_strict` | mev-inspect shape: same sender swaps the victim's pool in the victim's direction before and the opposite direction after |
 | `heur_naive` | any front-victim-back shape: same sender before and after, the tx before moves a token the victim trades |
 | `l1_only` | exclude what layer 1 flags |
-| `tg_open` / `tg_closed` | layer 1, then layer 2; INCONCLUSIVE → include / exclude |
+| `tg_open` / `tg_closed` | layer 1, then layer 2; CAUSE → EXCLUDE, NO_EFFECT → INCLUDE, INCONCLUSIVE → DEFAULT, which the builder resolves to include / exclude |
 
 - Layer 1 reads the bundle's own simulation logs: flag if a searcher tx before the victim changed a
   pool the victim swaps on. Those txs are the drop set.
 - Layer 2 drops them, re-simulates the rest of the bundle on the same block prefix, and compares the
   victim's net inflow of its output token. `CAUSE` if the victim gets at least 10 bps more
-  (`--rel-threshold`), `NO_EFFECT` otherwise. `INCONCLUSIVE` when an intermediate tx between the drop
-  set and the victim changes status or logs (`ordering_confound`), when the victim reverts without the
-  drop set (`victim_reverted_cf`), or when no victim output can be identified.
+  (`--rel-threshold`), `NO_EFFECT` otherwise. `INCONCLUSIVE(ordering_confound)` when an intermediate tx between the
+  drop set and the victim changes status or logs (`intermediate_changed`) or the victim itself reverts
+  without the drop set (`victim_reverted`); `INCONCLUSIVE(no_victim_output)` when no victim output can
+  be identified. INCONCLUSIVE maps to DEFAULT, never directly to EXCLUDE; metrics report EXCLUDE-on-CAUSE
+  and DEFAULT separately.
 - Ground truth harm is computed separately with the x*y=k model on the reserves read before the bundle.
 
 ## Metrics (`metrics.py`)

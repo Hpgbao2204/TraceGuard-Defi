@@ -124,6 +124,6 @@ Runner mới `eval/rq3/run_fixed20.py`:
 | M1 `-drop-tx` | xong, đã merge (PR #1) | Chạy trên 3 context thật: comparable đúng; exchangeissuance bị nonce gap nên ra incomparable, đúng mong đợi |
 | W1 `-lean` | PR #2, chờ chủ repo đo | |
 | W2 RQ3 sửa frame-local | chưa bắt đầu | **ưu tiên cao nhất** |
-| W3 RQ4 mô phỏng | PR #3, kết quả sơ bộ | seed 7, 200 slot: chặn 227/227 sandwich, chặn nhầm 7/409 benign (victim revert khi bỏ front-run); latency là thời gian RPC của anvil; chưa có pool V3 |
+| W3 RQ4 mô phỏng | PR #3, đã rebase; xong mục 1, 2 | seed 7, 200 slot, tg_closed: EXCLUDE-on-CAUSE 197/227 sandwich, 0/409 benign; DEFAULT (ordering confound) 30 sandwich decoy + 7 benign (victim revert khi bỏ front-run), builder fail-closed nên cả 37 bị loại. Mục 3, 4 đã có số theo từng kiểu; còn mục 5 (nhiều seed). Latency là RPC anvil, không dùng cho claim; chưa có pool V3 |
 | W4 RQ4 mainnet | chưa bắt đầu | cần RPC, chạy ở local |
 | W5 hình | chưa bắt đầu | |
