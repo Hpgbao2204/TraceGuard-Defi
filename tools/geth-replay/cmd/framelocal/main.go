@@ -554,7 +554,7 @@ func main() {
 	proofPath := flag.String("proofs", "", "prestate_proofs.json (optional)")
 	targetIndex := flag.Int("target-index", -1, "target transaction index; defaults to last")
 	targetData := flag.String("target-data", "", "replacement calldata for target legacy tx")
-	mode := flag.String("mode", "whole-tx", "execution mode: whole-tx, record, frame-local, isolation, sham")
+	mode := flag.String("mode", "whole-tx", "execution mode: whole-tx, record, frame-local, isolation, sham, discover")
 	scopedPrice := flag.Bool("scoped-price", false, "enable read-site scoping for price sources (f_price)")
 	frameIndex := flag.Int("frame-index", -1, "target entry frame index for frame-local modes; -1 picks the harm frame with the largest per-token loss share")
 	doseLambda := flag.Float64("dose-lambda", -1.0, "dose-response lambda parameter in [0.0, 1.0]")
@@ -572,12 +572,22 @@ func main() {
 	flag.Var(&scopeCallers, "scope-caller", "caller address allowed to receive scoped read intervention (repeatable)")
 	flag.Var(&attackers, "attacker", "attacker address (repeatable)")
 	flag.Var(&priceSources, "price-source", "price source contract address (repeatable)")
+	var readSiteFlags stringListFlag
+	flag.Var(&readSiteFlags, "read-site", "declared factor read site target:selector, '*' allowed on one side (repeatable); replaces the price-selector catalogue")
 	var targetCode stringListFlag
 	var targetStorage stringListFlag
 	flag.Var(&targetCode, "target-code", "address=runtime-bytecode override (repeatable)")
 	flag.Var(&targetStorage, "target-storage", "address:slot=value override (repeatable)")
 	flag.Parse()
 	thresholds := verdictThresholds{LossMinFrac: *lossMinFrac, Rho: *rho}
+	var sites []readSite
+	for _, v := range readSiteFlags {
+		rs, err := parseReadSite(v)
+		if err != nil {
+			panic(err)
+		}
+		sites = append(sites, rs)
+	}
 	if *lossMinFrac < 0 || *lossMinFrac >= 1-*rho || *rho <= 0 || *rho >= 1 {
 		panic("thresholds need 0 <= loss-min-frac < 1-rho and 0 < rho < 1")
 	}
@@ -741,7 +751,7 @@ func main() {
 				replacement = decoded
 			}
 
-			frameMode := *mode == "frame-local" || *mode == "isolation" || *mode == "sham"
+			frameMode := *mode == "frame-local" || *mode == "isolation" || *mode == "sham" || *mode == "discover"
 			wholeTxVerdict := *mode == "whole-tx" && *scopedPrice
 
 			// Pass 1: unmodified baseline on a copy of S0, for every mode that
@@ -767,9 +777,11 @@ func main() {
 				if targetIdx < 0 {
 					targetIdx = selectHarmFrame(base.recorder.entryFrames)
 				}
-				valueMode := map[string]string{"frame-local": valueNeutral, "isolation": valueObserved, "sham": valueSham}[*mode]
+				valueMode := map[string]string{"frame-local": valueNeutral, "isolation": valueObserved, "sham": valueSham, "discover": valueDiscover}[*mode]
 				scopingMgr := newScopingManager(true, victims, priceSources, scopeCallers, s0Snapshot, &header, chainConfig, lambdaPtr, valueMode, replacement, *priceIdentity)
 				scopingMgr.shamScale = *shamScale
+				scopingMgr.readSites = sites
+				scopingMgr.maxDiscover = 2000
 
 				var cfEVM *vm.EVM
 				cfCancel := func() {
@@ -781,6 +793,9 @@ func main() {
 				// Frame-local: intervene only while the harm frame runs, so the
 				// prefix of the transaction replays exactly as in the baseline.
 				scopingMgr.inScope = cfRecorder.targetActive
+				if *mode == "discover" {
+					scopingMgr.entryState = func() *state.StateDB { return cfRecorder.targetEntryState }
+				}
 				cfRevertClf := newRevertClassifier(victims, attackers, nil)
 				run = applyTarget(st, &header, chainConfig, gasPool, &tx, scopingMgr, cfRecorder, cfRevertClf, func(e *vm.EVM) { cfEVM = e })
 
@@ -801,7 +816,14 @@ func main() {
 					}
 				}
 				var verdict frameLocalExecutionResult
-				if targetIdx < 0 || targetIdx >= len(base.recorder.entryFrames) {
+				if *mode == "discover" {
+					verdict = frameLocalExecutionResult{Mode: *mode, TargetFrameIndex: targetIdx, Thresholds: thresholds,
+						Verdict: "DISCOVERY", InterventionSites: len(scopingMgr.records),
+						VerdictReason: "reads by V inside the harm frame recorded with S0 and observed values; no intervention"}
+					if targetIdx < 0 {
+						verdict.ReasonCode = "no_harm_frame"
+					}
+				} else if targetIdx < 0 || targetIdx >= len(base.recorder.entryFrames) {
 					verdict = inconclusive(frameLocalExecutionResult{Mode: *mode, TargetFrameIndex: targetIdx, Thresholds: thresholds},
 						"no_harm_frame", "baseline has no victim harm frame to target")
 				} else {
@@ -828,6 +850,7 @@ func main() {
 			} else {
 				// Mode "whole-tx" or "record"
 				scopingMgr := newScopingManager(*scopedPrice, victims, priceSources, scopeCallers, s0Snapshot, &header, chainConfig, lambdaPtr, valueNeutral, replacement, *priceIdentity)
+				scopingMgr.readSites = sites
 				frameRec := newFrameRecorder(st, victims, attackers, false, -1, nil)
 				revertClf := newRevertClassifier(victims, attackers, nil)
 				run = applyTarget(st, &header, chainConfig, gasPool, &tx, scopingMgr, frameRec, revertClf, nil)

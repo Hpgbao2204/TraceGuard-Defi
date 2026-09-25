@@ -69,6 +69,10 @@ type frameRecorder struct {
 	cancelFunc       func()
 	frameLocalResult *victimEntryFrame
 	clock            *eventClock
+	// targetEntryState is a copy of the state when the target frame was
+	// entered (frame-local modes only), used to tell whether a read was
+	// changed before the victim was entered.
+	targetEntryState *state.StateDB
 }
 
 func newFrameRecorder(
@@ -180,6 +184,9 @@ func (r *frameRecorder) onEnter(
 			AttackerCallbacks: make([]attackerCallback, 0),
 			startLogCount:     startLogCount,
 			entryBalances:     entryBals,
+		}
+		if r.isFrameLocal && fIdx == r.targetFrameIndex && r.st != nil {
+			r.targetEntryState = r.st.Copy()
 		}
 		r.entryFrames = append(r.entryFrames, frame)
 		r.activeEntryStack = append(r.activeEntryStack, fIdx)

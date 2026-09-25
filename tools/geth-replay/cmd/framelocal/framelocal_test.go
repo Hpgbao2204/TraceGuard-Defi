@@ -2,9 +2,11 @@ package main
 
 import (
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
@@ -277,5 +279,75 @@ func TestScopingOnlyInsideTargetFrame(t *testing.T) {
 	s.onExit(2, nil, st)
 	if len(s.records) != 1 || s.records[0].Caller != other.Hex() {
 		t.Fatalf("sham sites: %+v", s.records)
+	}
+}
+
+func TestParseReadSite(t *testing.T) {
+	ok := []string{"0x00000000000000000000000000000000000000a1:0x70a08231", "*:70a08231", "0x00000000000000000000000000000000000000a1:*"}
+	for _, v := range ok {
+		if _, err := parseReadSite(v); err != nil {
+			t.Errorf("%s: %v", v, err)
+		}
+	}
+	for _, v := range []string{"*:*", "nope", "0x01:0x1234", "zz:70a08231"} {
+		if _, err := parseReadSite(v); err == nil {
+			t.Errorf("%s must be rejected", v)
+		}
+	}
+}
+
+// discover flags a read whose value changed since S0 and leaves an unchanged
+// read alone.
+func TestDiscoverFlagsDivergentReads(t *testing.T) {
+	victim := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	oracle := common.HexToAddress("0x00000000000000000000000000000000000000a1")
+	s0, err := makeState(map[string]account{
+		strings.ToLower(oracle.Hex()): {Balance: "0x0", Code: "0x60005460005260206000f3", Storage: map[string]string{
+			"0x0000000000000000000000000000000000000000000000000000000000000000": "0x0000000000000000000000000000000000000000000000000000000000000005"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := getChainConfig(mainnetChainID)
+	m := newScopingManager(true, []string{victim.Hex()}, nil, nil, s0.Copy(), testHeader(), cfg, nil, valueDiscover, nil, false)
+	input := common.FromHex("0x70a08231")
+	m.onEnter(2, 0xfa, victim, oracle, input, 100000, s0.Copy(), 0)
+	moved := s0.Copy()
+	moved.SetState(oracle, common.Hash{}, common.BigToHash(big.NewInt(7)))
+	m.onEnter(2, 0xfa, victim, oracle, input, 100000, moved, 0)
+	m.onEnter(2, 0xfa, common.HexToAddress("0x09"), oracle, input, 100000, moved, 0) // not V
+	if len(m.records) != 2 {
+		t.Fatalf("records = %d, want 2 (reads by V only)", len(m.records))
+	}
+	if m.records[0].Diverges || !m.records[1].Diverges {
+		t.Fatalf("divergence flags: %+v", m.records)
+	}
+	// Changed before entry vs changed inside the frame by V.
+	entry := s0.Copy()
+	m.entryState = func() *state.StateDB { return entry }
+	m.onEnter(2, 0xfa, victim, oracle, input, 100000, moved, 0)
+	if r := m.records[2]; !r.Diverges || r.ChangedBeforeEntry {
+		t.Fatalf("change made inside the frame must not count as pre-entry: %+v", r)
+	}
+	entry = moved
+	m.onEnter(2, 0xfa, victim, oracle, input, 100000, moved, 0)
+	if r := m.records[3]; !r.ChangedBeforeEntry {
+		t.Fatalf("change before entry must count: %+v", r)
+	}
+	if moved.GetCode(oracle) == nil || len(m.activeStubs) != 0 {
+		t.Fatal("discover must not stub")
+	}
+}
+
+func TestReadSitesReplaceCatalogue(t *testing.T) {
+	m := &scopingManager{}
+	a := common.HexToAddress("0x00000000000000000000000000000000000000a1")
+	if !m.isPriceTarget(a, "50d25bcd") || m.isPriceTarget(a, "70a08231") {
+		t.Fatal("default catalogue: latestAnswer yes, balanceOf no")
+	}
+	rs, _ := parseReadSite(a.Hex() + ":70a08231")
+	m.readSites = []readSite{rs}
+	if m.isPriceTarget(a, "50d25bcd") || !m.isPriceTarget(a, "70a08231") || m.isPriceTarget(common.HexToAddress("0x02"), "70a08231") {
+		t.Fatal("declared site must replace the catalogue and match target and selector")
 	}
 }

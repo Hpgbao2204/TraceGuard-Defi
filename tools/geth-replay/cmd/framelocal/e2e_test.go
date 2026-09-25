@@ -175,6 +175,20 @@ func TestE2EFrameLocalModes(t *testing.T) {
 		}
 	}
 
+	site := e2eOracle.Hex() + ":50d25bcd"
+	declared := runCLI(t, append(append([]string{}, common...), "-mode", "frame-local", "-read-site", site, "-price-value", word(0))...)
+	if declared.FrameLocalResult.Verdict != "CAUSE_BLOCKED" {
+		t.Errorf("declared site: %+v", declared.FrameLocalResult)
+	}
+	other := runCLI(t, append(append([]string{}, common...), "-mode", "frame-local", "-read-site", e2eOracle.Hex()+":70a08231", "-price-value", word(0))...)
+	if other.FrameLocalResult.ReasonCode != "not_consumed" {
+		t.Errorf("undeclared selector must not be intervened: %+v", other.FrameLocalResult)
+	}
+	disc := runCLI(t, append(append([]string{}, common...), "-mode", "discover")...)
+	if disc.FrameLocalResult.Verdict != "DISCOVERY" || len(disc.ScopedReads) != 1 || disc.ScopedReads[0].Diverges || disc.ScopedReads[0].ChangedBeforeEntry {
+		t.Errorf("discover: %+v %+v", disc.FrameLocalResult, disc.ScopedReads)
+	}
+
 	whole := runCLI(t, append(append([]string{}, common...), "-mode", "whole-tx", "-scoped-price", "-price-value", word(0))...)
 	if whole.WholeTxResult == nil || whole.WholeTxResult.Verdict != "CAUSE_BLOCKED" {
 		t.Fatalf("whole-tx blocked: %+v", whole.WholeTxResult)

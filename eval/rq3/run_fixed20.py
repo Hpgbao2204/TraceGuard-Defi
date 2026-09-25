@@ -71,7 +71,7 @@ def check_context(context: Path, case: dict[str, Any]) -> str | None:
 
 
 def build_args(exe: str, context: Path, case: dict[str, Any], mode: str, out: Path,
-               thresholds: dict[str, float]) -> list[str]:
+               thresholds: dict[str, float], sites: list[str] | None = None) -> list[str]:
     args = [exe, "-context", str(context), "-output", str(out), "-lean",
             "-target-index", str(case["tx_index"]),
             "-loss-min-frac", str(thresholds["loss_min_frac"]), "-rho", str(thresholds["rho"])]
@@ -82,6 +82,8 @@ def build_args(exe: str, context: Path, case: dict[str, Any], mode: str, out: Pa
         args += ["-victim", v]
     for a in case["attacker"]:
         args += ["-attacker", a]
+    for site in sites or []:
+        args += ["-read-site", site]
     if mode == "whole-tx":
         args += ["-mode", "whole-tx", "-scoped-price"]
     else:
@@ -117,17 +119,24 @@ def interpret(payload: dict[str, Any] | None, mode: str, error: str | None = Non
 
 
 def run_case(exe: str, contexts: Path, out_dir: Path, name: str, case: dict[str, Any],
-             thresholds: dict[str, float], timeout: int) -> dict[str, dict[str, Any]]:
+             thresholds: dict[str, float], timeout: int,
+             factor: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
     context = contexts / name
     bad = check_context(context, case)
     if bad:
         return {m: {"verdict": "INCONCLUSIVE", "reason": bad} for m in MODES}
+    sites = None
+    if factor is not None:
+        sites = factor.get("sites") or []
+        if not sites:
+            reason = f"no_declared_factor:{factor.get('reason') or 'empty'}"
+            return {m: {"verdict": "INCONCLUSIVE", "reason": reason} for m in MODES}
     case_dir = out_dir / name
     case_dir.mkdir(parents=True, exist_ok=True)
     results = {}
     for mode in MODES:
         out = case_dir / f"{mode}.json"
-        args = build_args(exe, context, case, mode, out, thresholds)
+        args = build_args(exe, context, case, mode, out, thresholds, sites)
         started = time.perf_counter()
         try:
             proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
@@ -154,7 +163,7 @@ def summarize(per_case: dict[str, dict[str, dict[str, Any]]]) -> dict[str, Any]:
     for mode in MODES:
         recs = [c[mode] for c in per_case.values() if mode in c]
         verdicts = Counter(r["verdict"] for r in recs)
-        reasons = Counter(r["reason"] for r in recs if r["verdict"] == "INCONCLUSIVE")
+        reasons = Counter((r["reason"] or "?").split(":")[0] for r in recs if r["verdict"] == "INCONCLUSIVE")
         origins = Counter(r["revert_origin"] for r in recs if r.get("revert_origin"))
         entry: dict[str, Any] = {
             "n": len(recs),
@@ -215,6 +224,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--loss-min-frac", type=float, default=0.01)
     ap.add_argument("--rho", type=float, default=0.1)
     ap.add_argument("--timeout", type=int, default=900, help="seconds per run")
+    ap.add_argument("--factors", type=Path, default=None,
+                    help="frozen per-case factors from eval.rq3.discover_factors; without it the price-selector catalogue is used")
     args = ap.parse_args(argv)
 
     args.out.mkdir(parents=True, exist_ok=True)
@@ -224,15 +235,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.only:
         cases = {k: v for k, v in cases.items() if k in set(args.only)}
     thresholds = {"loss_min_frac": args.loss_min_frac, "rho": args.rho}
+    factors = None
+    if args.factors is not None:
+        fdoc = json.loads(args.factors.read_text(encoding="utf-8"))
+        if fdoc.get("manifest_sha256") != manifest_sha:
+            raise SystemExit("factors were derived from a different manifest")
+        factors = fdoc["cases"]
     lock = {"manifest": args.manifest.name, "manifest_sha256": manifest_sha, "n_cases": len(cases),
             "exe_sha256": sha256_file(Path(args.exe)), "thresholds": thresholds,
+            "factors": args.factors.name if args.factors else None,
+            "factors_sha256": sha256_file(args.factors) if args.factors else None,
             "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     (args.out / "manifest_lock.json").write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
 
     per_case = {}
     for i, (name, case) in enumerate(sorted(cases.items()), 1):
         print(f"[{i}/{len(cases)}] {name}", file=sys.stderr, flush=True)
-        per_case[name] = run_case(args.exe, args.contexts, args.out, name, case, thresholds, args.timeout)
+        factor = None if factors is None else factors.get(name, {"sites": [], "reason": "missing_from_factors"})
+        per_case[name] = run_case(args.exe, args.contexts, args.out, name, case, thresholds, args.timeout, factor)
 
     summary = summarize(per_case)
     doc = {"schema": 1, **lock, "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

@@ -44,7 +44,12 @@ type scopedReadRecord struct {
 	IsRevert      bool   `json:"is_revert"`
 	FrameIndex    int    `json:"frame_index"`
 	Seq           uint64 `json:"seq"`
-	Kind          string `json:"kind"` // neutral, observed (isolation), sham
+	Kind          string `json:"kind"` // neutral, observed (isolation), sham, discover
+	Diverges      bool   `json:"diverges,omitempty"`
+	// discover: value at harm-frame entry, and whether it already differed
+	// from S0 then (changed by the attacker before V was entered).
+	EntryValue         string `json:"entry_value,omitempty"`
+	ChangedBeforeEntry bool   `json:"changed_before_entry,omitempty"`
 }
 
 // Value modes for scoped reads.
@@ -52,7 +57,43 @@ const (
 	valueNeutral  = "neutral"  // v0 on S0 (or explicit replacement / identity / dose)
 	valueObserved = "observed" // identity stub: the value the real call returns now
 	valueSham     = "sham"     // a different value at a read that is not the factor
+	valueDiscover = "discover" // record every read by V with its S0 and observed value; no stub
 )
+
+// readSite is one declared factor: a (target, selector) pair; "*" on either
+// side matches any, but not both.
+type readSite struct {
+	target   common.Address
+	anyAddr  bool
+	selector string
+}
+
+// parseReadSite parses "target:selector", where either side may be "*".
+func parseReadSite(v string) (readSite, error) {
+	parts := strings.SplitN(strings.TrimSpace(v), ":", 2)
+	if len(parts) != 2 {
+		return readSite{}, fmt.Errorf("read-site must be target:selector, got %q", v)
+	}
+	rs := readSite{}
+	if parts[0] == "*" {
+		rs.anyAddr = true
+	} else if common.IsHexAddress(parts[0]) {
+		rs.target = common.HexToAddress(parts[0])
+	} else {
+		return readSite{}, fmt.Errorf("bad read-site target %q", parts[0])
+	}
+	sel := strings.TrimPrefix(strings.ToLower(parts[1]), "0x")
+	if sel != "*" {
+		if len(sel) != 8 {
+			return readSite{}, fmt.Errorf("bad read-site selector %q", parts[1])
+		}
+		rs.selector = sel
+	}
+	if rs.anyAddr && rs.selector == "" {
+		return readSite{}, fmt.Errorf("read-site *:* would match every call")
+	}
+	return rs, nil
+}
 
 type scopingManager struct {
 	enabled      bool
@@ -69,8 +110,17 @@ type scopingManager struct {
 	shamScale    float64              // sham value = observed word * shamScale
 	inScope      func() bool          // nil: every read; otherwise only while it returns true
 	clock        *eventClock
-	replacement  []byte // optional explicit replacement for scoped reads
-	identity     bool   // return the first ABI argument for one-argument reads
+	replacement  []byte              // optional explicit replacement for scoped reads
+	identity     bool                // return the first ABI argument for one-argument reads
+	readSites    []readSite          // declared factor sites; replace the price-selector catalogue when set
+	s0Cache      map[string]s0Result // discover mode: S0 value per (target, input)
+	maxDiscover  int
+	entryState   func() *state.StateDB // discover: state at harm-frame entry
+}
+
+type s0Result struct {
+	ret []byte
+	err error
 }
 
 type stubRecord struct {
@@ -141,6 +191,14 @@ func (m *scopingManager) isVictim(addr common.Address) bool {
 }
 
 func (m *scopingManager) isPriceTarget(addr common.Address, selector string) bool {
+	if len(m.readSites) > 0 {
+		for _, rs := range m.readSites {
+			if (rs.anyAddr || rs.target == addr) && (rs.selector == "" || rs.selector == selector) {
+				return true
+			}
+		}
+		return false
+	}
 	_, found := knownPriceSelectors[selector]
 	if !found {
 		return false
@@ -164,6 +222,55 @@ func (m *scopingManager) evaluateCallOnS0(from, to common.Address, input []byte,
 	}
 	ret, _, err := evalEVM.StaticCall(from, to, input, vm.NewGasBudget(gas, 0))
 	return ret, err
+}
+
+// discover records a call made by V: its value on S0 (pre-transaction state),
+// at harm-frame entry, and now. A read whose value at entry already differs
+// from S0 was changed by the attacker before V was entered: a candidate
+// manipulated factor. Changes made inside the frame (by V itself) do not
+// count. Nothing is stubbed.
+func (m *scopingManager) discover(depth int, from, to common.Address, selector string, input []byte, gas uint64, st *state.StateDB, frameIdx int) {
+	if !m.scopeCallers[from] {
+		return
+	}
+	if m.maxDiscover > 0 && len(m.records) >= m.maxDiscover {
+		return
+	}
+	key := to.Hex() + hex.EncodeToString(input)
+	if m.s0Cache == nil {
+		m.s0Cache = map[string]s0Result{}
+	}
+	s0, ok := m.s0Cache[key]
+	if !ok {
+		ret, err := m.evaluateCallOnS0(from, to, input, gas)
+		s0 = s0Result{ret: ret, err: err}
+		m.s0Cache[key] = s0
+	}
+	vObs, obsErr := m.evaluateObserved(from, to, input, gas, st)
+	var vEntry []byte
+	var entryErr error
+	if m.entryState != nil && m.entryState() != nil {
+		vEntry, entryErr = m.evaluateObserved(from, to, input, gas, m.entryState())
+	}
+	rec := scopedReadRecord{
+		Depth:         depth,
+		Caller:        from.Hex(),
+		Target:        to.Hex(),
+		Selector:      "0x" + selector,
+		Function:      knownPriceSelectors[selector],
+		V0Value:       "0x" + hex.EncodeToString(s0.ret),
+		ObservedValue: "0x" + hex.EncodeToString(vObs),
+		IsRevert:      s0.err != nil || obsErr != nil,
+		FrameIndex:    frameIdx,
+		Seq:           m.clock.now(),
+		Kind:          valueDiscover,
+	}
+	rec.Diverges = !rec.IsRevert && rec.V0Value != rec.ObservedValue
+	if m.entryState != nil {
+		rec.EntryValue = "0x" + hex.EncodeToString(vEntry)
+		rec.ChangedBeforeEntry = !rec.IsRevert && entryErr == nil && rec.V0Value != rec.EntryValue
+	}
+	m.records = append(m.records, rec)
 }
 
 // evaluateObserved runs the read on a copy of the current state, which is what
@@ -300,6 +407,10 @@ func (m *scopingManager) onEnter(
 		return
 	}
 	selector := hex.EncodeToString(input[:4])
+	if m.valueMode == valueDiscover {
+		m.discover(depth, from, to, selector, input, gas, st, currentFrameIndex)
+		return
+	}
 	// Neutral and observed modes act on the factor: a price read by V.
 	// Sham acts on a price read by anyone else, which is not the factor.
 	if m.valueMode == valueSham {
