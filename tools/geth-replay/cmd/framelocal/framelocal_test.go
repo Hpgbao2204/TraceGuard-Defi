@@ -2,6 +2,7 @@ package main
 
 import (
 	"math/big"
+	"os"
 	"strings"
 	"testing"
 
@@ -153,7 +154,7 @@ func TestRevertOriginUsesTimeNotDepth(t *testing.T) {
 	clock := clf.clock
 	enter := func(d int, from, to common.Address) uint64 {
 		clock.tick()
-		clf.onEnter(d, from, to, nil)
+		clf.onEnter(d, 0xf1, from, to, nil)
 		return clock.now()
 	}
 	exit := func(d int, reverted bool) { clock.tick(); clf.onExit(d, nil, nil, reverted) }
@@ -342,12 +343,12 @@ func TestDiscoverFlagsDivergentReads(t *testing.T) {
 func TestReadSitesReplaceCatalogue(t *testing.T) {
 	m := &scopingManager{}
 	a := common.HexToAddress("0x00000000000000000000000000000000000000a1")
-	if !m.isPriceTarget(a, "50d25bcd") || m.isPriceTarget(a, "70a08231") {
+	if !m.isPriceTarget(a, "50d25bcd", "") || m.isPriceTarget(a, "70a08231", "") {
 		t.Fatal("default catalogue: latestAnswer yes, balanceOf no")
 	}
 	rs, _ := parseReadSite(a.Hex() + ":70a08231")
 	m.readSites = []readSite{rs}
-	if m.isPriceTarget(a, "50d25bcd") || !m.isPriceTarget(a, "70a08231") || m.isPriceTarget(common.HexToAddress("0x02"), "70a08231") {
+	if m.isPriceTarget(a, "50d25bcd", "") || !m.isPriceTarget(a, "70a08231", "") || m.isPriceTarget(common.HexToAddress("0x02"), "70a08231", "") {
 		t.Fatal("declared site must replace the catalogue and match target and selector")
 	}
 }
@@ -421,15 +422,61 @@ func TestRevertChainNamesOriginFunction(t *testing.T) {
 	v := common.HexToAddress("0x01")
 	a := common.HexToAddress("0x0bad")
 	clock.tick()
-	clf.onEnter(0, common.HexToAddress("0xee"), a, common.FromHex("0x12345678"))
+	clf.onEnter(0, 0xf1, common.HexToAddress("0xee"), a, common.FromHex("0x12345678"))
 	clock.tick()
-	clf.onEnter(1, a, v, common.FromHex("0xa9059cbb00"))
+	clf.onEnter(1, 0xf4, a, v, common.FromHex("0xa9059cbb00"))
 	clock.tick()
 	clf.onExit(1, common.FromHex("0xdeadbeef"), nil, true)
 	clock.tick()
 	clf.onExit(0, common.FromHex("0xdeadbeef"), nil, true)
 	r := clf.classify(true, "")
-	if r.OriginClass != "victim" || r.OriginSelector != "0xa9059cbb" || r.RevertMessage != "0xdeadbeef" || len(r.RevertChain) != 2 || r.RevertChain[0].Class != "attacker" {
+	if r.OriginClass != "victim" || r.OriginSelector != "0xa9059cbb" || r.RevertMessage != "0xdeadbeef" || len(r.RevertChain) != 2 || r.RevertChain[0].Class != "attacker" ||
+		r.OriginContextClass != "attacker" {
 		t.Fatalf("revert detail: %+v", r)
+	}
+	clf.delegateContext = true
+	if r := clf.classify(true, ""); r.OriginClass != "attacker" {
+		t.Fatalf("delegate-context must classify by the storage context: %+v", r)
+	}
+}
+
+func TestReadSiteArgs(t *testing.T) {
+	a := common.HexToAddress("0x00000000000000000000000000000000000000a1")
+	holder := "000000000000000000000000" + strings.Repeat("11", 20)
+	rs, err := parseReadSite(a.Hex() + ":70a08231:" + holder)
+	if err != nil || rs.args != holder {
+		t.Fatalf("parse args: %+v %v", rs, err)
+	}
+	m := &scopingManager{readSites: []readSite{rs}}
+	other := "000000000000000000000000" + strings.Repeat("22", 20)
+	if !m.isPriceTarget(a, "70a08231", holder) || m.isPriceTarget(a, "70a08231", other) {
+		t.Fatal("args must restrict the site to one holder")
+	}
+	if _, err := parseReadSite(a.Hex() + ":70a08231:zz"); err == nil {
+		t.Fatal("bad args must be rejected")
+	}
+	if got := argsHex(common.FromHex("0x70a08231" + holder)); got != holder {
+		t.Fatalf("argsHex = %s", got)
+	}
+}
+
+func TestTargetCodeCopyAndFile(t *testing.T) {
+	src := common.HexToAddress("0x00000000000000000000000000000000000000a1")
+	dst := common.HexToAddress("0x000000000000000000000000000000000000f1a1")
+	st, err := makeState(map[string]account{strings.ToLower(src.Hex()): {Balance: "0x0", Code: "0x6001"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	art := dir + "/a.json"
+	if err := os.WriteFile(art, []byte(`{"deployedBytecode":"0x6002"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	applyTargetOverrides(st, []string{src.Hex() + "=@" + art}, nil, dst.Hex()+"="+src.Hex())
+	if got := common.Bytes2Hex(st.GetCode(dst)); got != "6001" {
+		t.Fatalf("copy must keep the original code, got %s", got)
+	}
+	if got := common.Bytes2Hex(st.GetCode(src)); got != "6002" {
+		t.Fatalf("@file artifact not loaded, got %s", got)
 	}
 }
