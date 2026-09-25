@@ -2,16 +2,16 @@
   "schema": 1,
   "rule": "read sites (target, selector) called by V inside the harm frame whose value at harm-frame entry differs from S0, static-evaluable on both; neutral value = S0 value",
   "manifest": "fixed20_cases.json",
-  "manifest_sha256": "54287d5b76c02314dc7dde870e914aeb05f5bf0e4cce6349ebde8379ec4880d4",
-  "exe_sha256": "82c3545ec8c00a0b855d5e4581d243c4aa645ab5d0c195cccb24d94fd22a4880",
-  "created_at": "2026-09-25T10:58:32Z",
+  "manifest_sha256": "95b4cf5199239ae50f66feb9492b60c37e30423c046f03eebc1c49850c9286d9",
+  "exe_sha256": "3580c2da214bd5e8183cd38a474e5c45c7da52dbff050a93f08fc8fbca77214a",
+  "created_at": "2026-09-25T11:02:52Z",
   "cases": {
     "defihacklabs-alkemiearn-2026-03-10": {
       "harm_frame": 0,
       "n_reads": 9,
       "n_changed_before_entry": 0,
       "sites": [],
-      "reason": "replay_gate_failed"
+      "reason": "no_read_changed_before_entry"
     },
     "defihacklabs-erc20transfer-2024-10-22": {
       "harm_frame": 1,
@@ -21,11 +21,13 @@
       "reason": "no_read_changed_before_entry"
     },
     "defihacklabs-exchangeissuance-index-coop-2026-07-30": {
-      "harm_frame": -1,
-      "n_reads": 0,
-      "n_changed_before_entry": 0,
-      "sites": [],
-      "reason": "replay_gate_failed"
+      "harm_frame": 1,
+      "n_reads": 77,
+      "n_changed_before_entry": 2,
+      "sites": [
+        "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2:0x70a08231"
+      ],
+      "reason": null
     },
     "defihacklabs-fixedtokenbswap-2025-06-15": {
       "harm_frame": -1,
