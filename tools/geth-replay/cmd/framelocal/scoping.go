@@ -50,6 +50,8 @@ type scopedReadRecord struct {
 	// from S0 then (changed by the attacker before V was entered).
 	EntryValue         string `json:"entry_value,omitempty"`
 	ChangedBeforeEntry bool   `json:"changed_before_entry,omitempty"`
+	// CallerClass is victim, attacker or third_party (who made this read).
+	CallerClass string `json:"caller_class,omitempty"`
 }
 
 // Value modes for scoped reads.
@@ -116,6 +118,10 @@ type scopingManager struct {
 	s0Cache      map[string]s0Result // discover mode: S0 value per (target, input)
 	maxDiscover  int
 	entryState   func() *state.StateDB // discover: state at harm-frame entry
+	// unscoped pins declared read sites for every caller (attacker and third
+	// parties included), not only for V. Baseline for the scoping ablation.
+	unscoped  bool
+	attackers map[common.Address]bool
 }
 
 type s0Result struct {
@@ -184,6 +190,16 @@ func newScopingManager(
 		replacement:  replacement,
 		identity:     identity,
 	}
+}
+
+func (m *scopingManager) callerClass(addr common.Address) string {
+	if m.scopeCallers[addr] || m.victims[addr] {
+		return "victim"
+	}
+	if m.attackers[addr] {
+		return "attacker"
+	}
+	return "third_party"
 }
 
 func (m *scopingManager) isVictim(addr common.Address) bool {
@@ -421,7 +437,7 @@ func (m *scopingManager) onEnter(
 			return
 		}
 	} else {
-		if !m.scopeCallers[from] {
+		if !m.unscoped && !m.scopeCallers[from] {
 			return
 		}
 		if !m.isPriceTarget(to, selector) {
@@ -471,6 +487,7 @@ func (m *scopingManager) onEnter(
 		Seq:           m.clock.now(),
 		Kind:          m.valueMode,
 		ReturnedValue: "0x" + hex.EncodeToString(valueToReturn),
+		CallerClass:   m.callerClass(from),
 	}
 	m.records = append(m.records, record)
 

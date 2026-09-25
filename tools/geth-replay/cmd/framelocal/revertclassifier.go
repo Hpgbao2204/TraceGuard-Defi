@@ -1,6 +1,10 @@
 package main
 
 import (
+	"encoding/binary"
+	"encoding/hex"
+	"fmt"
+	"math/big"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -18,6 +22,85 @@ type revertOriginResult struct {
 	// sibling children at some level. This can occur with Solidity try/catch patterns.
 	// When true, the assigned origin_class may not be unique; treat with caution.
 	MultipleRevertsAtDepth bool `json:"multiple_reverts_at_depth,omitempty"`
+
+	// Where and why the origin frame reverted, for guard-type classification.
+	OriginCaller   string      `json:"origin_caller,omitempty"`
+	OriginSelector string      `json:"origin_selector,omitempty"` // function of the reverting frame
+	RevertKind     string      `json:"revert_kind,omitempty"`     // error_string, panic, custom_error, empty, halt
+	RevertMessage  string      `json:"revert_message,omitempty"`  // decoded Error(string), panic code, or error selector
+	RevertData     string      `json:"revert_data,omitempty"`     // raw revert output of the origin frame (capped)
+	RevertChain    []revertHop `json:"revert_chain,omitempty"`    // reverted frames from the start frame down to the origin
+}
+
+// revertHop is one reverted frame on the path to the revert origin.
+type revertHop struct {
+	Address  string `json:"address"`
+	Selector string `json:"selector,omitempty"`
+	Class    string `json:"class"`
+	Message  string `json:"message,omitempty"`
+}
+
+const maxRevertDataBytes = 1024
+
+// decodeRevert classifies revert output: Error(string), Panic(uint256), a
+// custom error selector, or empty. A frame that halted without REVERT (out of
+// gas, invalid opcode) reports kind "halt" with the EVM error.
+func decodeRevert(output []byte, evmErr string) (kind, msg string) {
+	if len(output) == 0 {
+		if evmErr != "" && !strings.Contains(evmErr, "execution reverted") {
+			return "halt", evmErr
+		}
+		return "empty", ""
+	}
+	if len(output) < 4 {
+		return "custom_error", "0x" + hex.EncodeToString(output)
+	}
+	sel := hex.EncodeToString(output[:4])
+	body := output[4:]
+	switch sel {
+	case "08c379a0": // Error(string)
+		if len(body) >= 64 {
+			off := new(big.Int).SetBytes(body[:32])
+			if off.IsUint64() && off.Uint64()+32 <= uint64(len(body)) {
+				o := off.Uint64()
+				n := new(big.Int).SetBytes(body[o : o+32])
+				if n.IsUint64() && o+32+n.Uint64() <= uint64(len(body)) {
+					return "error_string", string(body[o+32 : o+32+n.Uint64()])
+				}
+			}
+		}
+		return "error_string", "<undecodable>"
+	case "4e487b71": // Panic(uint256)
+		if len(body) >= 32 {
+			return "panic", fmt.Sprintf("0x%02x %s", binary.BigEndian.Uint64(body[24:32]), panicName(binary.BigEndian.Uint64(body[24:32])))
+		}
+		return "panic", "<undecodable>"
+	}
+	return "custom_error", "0x" + sel
+}
+
+func panicName(code uint64) string {
+	switch code {
+	case 0x01:
+		return "assert"
+	case 0x11:
+		return "arithmetic_overflow"
+	case 0x12:
+		return "division_by_zero"
+	case 0x21:
+		return "enum_conversion"
+	case 0x22:
+		return "storage_encoding"
+	case 0x31:
+		return "pop_empty_array"
+	case 0x32:
+		return "array_out_of_bounds"
+	case 0x41:
+		return "out_of_memory"
+	case 0x51:
+		return "zero_function_pointer"
+	}
+	return "unknown"
 }
 
 type callTreeNode struct {
@@ -31,6 +114,8 @@ type callTreeNode struct {
 	Children    []*callTreeNode
 	EnterSeq    uint64
 	ExitSeq     uint64
+	Selector    string
+	Output      []byte
 }
 
 type revertClassifier struct {
@@ -71,7 +156,7 @@ func newRevertClassifier(
 	}
 }
 
-func (c *revertClassifier) onEnter(depth int, from, to common.Address) {
+func (c *revertClassifier) onEnter(depth int, from, to common.Address, input []byte) {
 	nodeIdx := len(c.nodes)
 	parentIdx := -1
 	var parentNode *callTreeNode
@@ -88,6 +173,9 @@ func (c *revertClassifier) onEnter(depth int, from, to common.Address) {
 		Children:    make([]*callTreeNode, 0),
 		EnterSeq:    c.clock.now(),
 	}
+	if len(input) >= 4 {
+		node.Selector = "0x" + hex.EncodeToString(input[:4])
+	}
 	c.nodes = append(c.nodes, node)
 	if parentNode != nil {
 		parentNode.Children = append(parentNode.Children, node)
@@ -95,7 +183,7 @@ func (c *revertClassifier) onEnter(depth int, from, to common.Address) {
 	c.currentStack = append(c.currentStack, node)
 }
 
-func (c *revertClassifier) onExit(depth int, err error, reverted bool) {
+func (c *revertClassifier) onExit(depth int, output []byte, err error, reverted bool) {
 	if len(c.currentStack) > 0 {
 		top := c.currentStack[len(c.currentStack)-1]
 		if top.Depth == depth {
@@ -103,6 +191,13 @@ func (c *revertClassifier) onExit(depth int, err error, reverted bool) {
 			top.ExitSeq = c.clock.now()
 			if err != nil {
 				top.Error = err.Error()
+			}
+			if reverted && len(output) > 0 {
+				n := len(output)
+				if n > maxRevertDataBytes {
+					n = maxRevertDataBytes
+				}
+				top.Output = append([]byte(nil), output[:n]...)
 			}
 			c.currentStack = c.currentStack[:len(c.currentStack)-1]
 		}
@@ -158,6 +253,11 @@ func (c *revertClassifier) classifyFrom(start *callTreeNode, txRevertReason stri
 	// the MultipleRevertsAtDepth field is set to signal such ambiguity.
 	curr := start
 	multipleRevertsAtDepth := false
+	hop := func(n *callTreeNode) revertHop {
+		_, m := decodeRevert(n.Output, n.Error)
+		return revertHop{Address: n.To.Hex(), Selector: n.Selector, Class: c.classifyOrigin(n.To), Message: m}
+	}
+	chain := []revertHop{hop(start)}
 	for {
 		var revertedChild *callTreeNode
 		revertedCount := 0
@@ -176,6 +276,7 @@ func (c *revertClassifier) classifyFrom(start *callTreeNode, txRevertReason stri
 			break
 		}
 		curr = revertedChild
+		chain = append(chain, hop(curr))
 	}
 
 	originClass := c.classifyOrigin(curr.To)
@@ -212,7 +313,18 @@ func (c *revertClassifier) classifyFrom(start *callTreeNode, txRevertReason stri
 		candidateVerdict = "REVERT_CONFOUND_THIRD_PARTY"
 	}
 
+	kind, msg := decodeRevert(curr.Output, curr.Error)
+	data := ""
+	if len(curr.Output) > 0 {
+		data = "0x" + hex.EncodeToString(curr.Output)
+	}
 	return revertOriginResult{
+		OriginCaller:               curr.From.Hex(),
+		OriginSelector:             curr.Selector,
+		RevertKind:                 kind,
+		RevertMessage:              msg,
+		RevertData:                 data,
+		RevertChain:                chain,
 		HasRevert:                  true,
 		DeepestFrameIndex:          curr.Index,
 		OriginAddress:              curr.To.Hex(),
