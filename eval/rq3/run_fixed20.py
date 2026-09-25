@@ -36,7 +36,16 @@ DEFAULT_MANIFEST = ROOT / "eval" / "rq3" / "fixed20_cases.json"
 DEFAULT_CONTEXTS = ROOT / "eval" / "results" / "m4" / "b2-contexts-fresh"
 DEFAULT_OUT = ROOT / ".cache" / "rq3"
 MODES = ("whole-tx", "frame-local", "isolation", "sham")
-VERDICT_KEY = {"whole-tx": "whole_tx_result"}  # other modes: frame_local_result
+# Dose-response modes are written "whole-tx@0.5" / "frame-local@0.5": the
+# factor is moved only a fraction lambda of the way from observed to S0.
+
+
+def base_mode(mode: str) -> str:
+    return mode.split("@", 1)[0]
+
+
+def dose_modes(lambdas: list[float]) -> tuple[str, ...]:
+    return tuple(f"{m}@{lam:g}" for lam in lambdas for m in ("whole-tx", "frame-local"))
 
 
 def sha256_file(path: Path) -> str:
@@ -90,10 +99,13 @@ def build_args(exe: str, context: Path, case: dict[str, Any], mode: str, out: Pa
         args += ["-attacker", a]
     for site in sites or []:
         args += ["-read-site", site]
-    if mode == "whole-tx":
+    base, _, lam = mode.partition("@")
+    if base == "whole-tx":
         args += ["-mode", "whole-tx", "-scoped-price"]
     else:
-        args += ["-mode", mode]
+        args += ["-mode", base]
+    if lam:
+        args += ["-dose-lambda", lam]
     return args
 
 
@@ -101,7 +113,8 @@ def interpret(payload: dict[str, Any] | None, mode: str, error: str | None = Non
     """Reduce one runner output to the fields the summary needs."""
     if payload is None:
         return {"verdict": "INCONCLUSIVE", "reason": error or "runner_error"}
-    res = payload.get(VERDICT_KEY.get(mode, "frame_local_result")) or {}
+    key = "whole_tx_result" if base_mode(mode) == "whole-tx" else "frame_local_result"
+    res = payload.get(key) or {}
     rec: dict[str, Any] = {
         "verdict": res.get("verdict", "INCONCLUSIVE"),
         "reason": res.get("reason_code") or None,
@@ -126,21 +139,21 @@ def interpret(payload: dict[str, Any] | None, mode: str, error: str | None = Non
 
 def run_case(exe: str, contexts: Path, out_dir: Path, name: str, case: dict[str, Any],
              thresholds: dict[str, float], timeout: int,
-             factor: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
+             factor: dict[str, Any] | None = None, modes: tuple[str, ...] = MODES) -> dict[str, dict[str, Any]]:
     context = contexts / name
     bad = check_context(context, case)
     if bad:
-        return {m: {"verdict": "INCONCLUSIVE", "reason": bad} for m in MODES}
+        return {m: {"verdict": "INCONCLUSIVE", "reason": bad} for m in modes}
     sites = None
     if factor is not None:
         sites = factor.get("sites") or []
         if not sites:
             reason = f"no_declared_factor:{factor.get('reason') or 'empty'}"
-            return {m: {"verdict": "INCONCLUSIVE", "reason": reason} for m in MODES}
+            return {m: {"verdict": "INCONCLUSIVE", "reason": reason} for m in modes}
     case_dir = out_dir / name
     case_dir.mkdir(parents=True, exist_ok=True)
     results = {}
-    for mode in MODES:
+    for mode in modes:
         out = case_dir / f"{mode}.json"
         args = build_args(exe, context, case, mode, out, thresholds, sites)
         started = time.perf_counter()
@@ -163,10 +176,10 @@ def run_case(exe: str, contexts: Path, out_dir: Path, name: str, case: dict[str,
     return results
 
 
-def summarize(per_case: dict[str, dict[str, dict[str, Any]]]) -> dict[str, Any]:
+def summarize(per_case: dict[str, dict[str, dict[str, Any]]], mode_list: tuple[str, ...] = MODES) -> dict[str, Any]:
     n = len(per_case)
     modes: dict[str, Any] = {}
-    for mode in MODES:
+    for mode in mode_list:
         recs = [c[mode] for c in per_case.values() if mode in c]
         verdicts = Counter(r["verdict"] for r in recs)
         reasons = Counter((r["reason"] or "?").split(":")[0] for r in recs if r["verdict"] == "INCONCLUSIVE")
@@ -177,7 +190,7 @@ def summarize(per_case: dict[str, dict[str, dict[str, Any]]]) -> dict[str, Any]:
             "inconclusive_reasons": dict(sorted(reasons.items())),
             "revert_origin": dict(sorted(origins.items())),
         }
-        if mode in ("whole-tx", "frame-local"):
+        if base_mode(mode) in ("whole-tx", "frame-local"):
             valid = len(recs) - verdicts.get("INCONCLUSIVE", 0)
             entry["valid"] = valid
             entry["valid_rate"] = round(valid / len(recs), 4) if recs else None
@@ -209,6 +222,8 @@ def render_table(per_case: dict[str, dict[str, dict[str, Any]]], summary: dict[s
         lines.append(f"{label:34} " + " ".join(f"{short(recs.get(m, {}))[:26]:26}" for m in MODES))
     lines.append("")
     for mode, e in summary["modes"].items():
+        if "@" in mode:
+            continue
         if "valid" in e:
             lines.append(f"{mode:12} valid {e['valid']}/{e['n']} CI95={e['valid_rate_wilson95']} "
                          f"verdicts={e['verdicts']} revert_origin={e['revert_origin']}")
@@ -217,6 +232,25 @@ def render_table(per_case: dict[str, dict[str, dict[str, Any]]], summary: dict[s
                          f"verdicts={e['verdicts']}")
         if e["inconclusive_reasons"]:
             lines.append(f"{'':12} inconclusive: {e['inconclusive_reasons']}")
+    dose = [m for m in summary["modes"] if "@" in m]
+    if dose:
+        abbrev = {"CAUSE": "C", "CAUSE_BLOCKED": "CB", "PARTIAL": "P", "NO_EFFECT": "NE", "INCONCLUSIVE": "-"}
+        lines.append("")
+        lines.append("dose-response (lambda: whole-tx/frame-local; C=CAUSE CB=CAUSE_BLOCKED P=PARTIAL NE=NO_EFFECT -=INC)")
+        lams = sorted({m.split("@")[1] for m in dose}, key=float)
+        lines.append(f"{'case':34} " + " ".join(f"{'l=' + lam:>10}" for lam in lams))
+        for name, recs in per_case.items():
+            if all(recs.get(f"whole-tx@{lam}", {}).get("reason", "").startswith("no_declared_factor") for lam in lams):
+                continue
+            cells = []
+            for lam in lams:
+                w = abbrev.get(recs.get(f"whole-tx@{lam}", {}).get("verdict"), "?")
+                f = abbrev.get(recs.get(f"frame-local@{lam}", {}).get("verdict"), "?")
+                cells.append(f"{w + '/' + f:>10}")
+            lines.append(f"{name.replace('defihacklabs-', '')[:34]:34} " + " ".join(cells))
+        for m in dose:
+            e = summary["modes"][m]
+            lines.append(f"{m:18} valid {e['valid']}/{e['n']} verdicts={e['verdicts']} inconclusive={e['inconclusive_reasons']}")
     return "\n".join(lines)
 
 
@@ -232,6 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--timeout", type=int, default=900, help="seconds per run")
     ap.add_argument("--factors", type=Path, default=None,
                     help="frozen per-case factors from eval.rq3.discover_factors; without it the price-selector catalogue is used")
+    ap.add_argument("--dose", default="", help="comma-separated lambdas in (0,1) for dose-response, e.g. 0.25,0.5,0.75")
     args = ap.parse_args(argv)
 
     args.out.mkdir(parents=True, exist_ok=True)
@@ -241,6 +276,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.only:
         cases = {k: v for k, v in cases.items() if k in set(args.only)}
     thresholds = {"loss_min_frac": args.loss_min_frac, "rho": args.rho}
+    lambdas = [float(x) for x in args.dose.split(",") if x.strip()]
+    if any(not 0 < lam < 1 for lam in lambdas):
+        raise SystemExit("--dose lambdas must be in (0, 1); lambda 1 is the plain run")
+    mode_list = MODES + dose_modes(lambdas)
     factors = None
     if args.factors is not None:
         fdoc = json.loads(args.factors.read_text(encoding="utf-8"))
@@ -251,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
             "exe_sha256": sha256_file(Path(args.exe)), "thresholds": thresholds,
             "factors": args.factors.name if args.factors else None,
             "factors_sha256": sha256_text(args.factors) if args.factors else None,
+            "dose_lambdas": lambdas,
             "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     (args.out / "manifest_lock.json").write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
 
@@ -258,9 +298,10 @@ def main(argv: list[str] | None = None) -> int:
     for i, (name, case) in enumerate(sorted(cases.items()), 1):
         print(f"[{i}/{len(cases)}] {name}", file=sys.stderr, flush=True)
         factor = None if factors is None else factors.get(name, {"sites": [], "reason": "missing_from_factors"})
-        per_case[name] = run_case(args.exe, args.contexts, args.out, name, case, thresholds, args.timeout, factor)
+        per_case[name] = run_case(args.exe, args.contexts, args.out, name, case, thresholds, args.timeout, factor,
+                                  mode_list)
 
-    summary = summarize(per_case)
+    summary = summarize(per_case, mode_list)
     doc = {"schema": 1, **lock, "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
            "summary": summary, "cases": per_case}
     (args.out / "summary.json").write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")

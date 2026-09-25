@@ -159,3 +159,36 @@ def test_text_hash_ignores_line_endings(tmp_path):
     lf.write_bytes(b'{\n  "a": 1\n}\n')
     crlf.write_bytes(b'{\r\n  "a": 1\r\n}\r\n')
     assert rf.sha256_text(lf) == rf.sha256_text(crlf)
+
+
+def test_dose_modes(tmp_path, monkeypatch, capsys):
+    ctx = make_context(tmp_path, "c", ["0x0", "0xabc"])
+    th = {"loss_min_frac": 0.01, "rho": 0.1}
+    args = rf.build_args("exe", ctx, CASE, "frame-local@0.5", tmp_path / "o.json", th)
+    assert args[args.index("-mode") + 1] == "frame-local" and args[args.index("-dose-lambda") + 1] == "0.5"
+    assert rf.dose_modes([0.25, 0.5]) == ("whole-tx@0.25", "frame-local@0.25", "whole-tx@0.5", "frame-local@0.5")
+
+    contexts = tmp_path / "ctx"
+    make_context(contexts, "case-a", ["0x0", "0xabc"])
+    manifest = tmp_path / "cases.json"
+    manifest.write_text(json.dumps({"schema": 1, "cases": {"case-a": CASE}}), encoding="utf-8")
+    exe = tmp_path / "framelocal.exe"
+    exe.write_bytes(b"stub")
+
+    def fake_run(a, capture_output, text, timeout):
+        mode = a[a.index("-mode") + 1]
+        out = fake_output(mode)
+        if "-dose-lambda" in a and mode == "frame-local":
+            out["frame_local_result"] = {"verdict": "PARTIAL"}
+        Path(a[a.index("-output") + 1]).write_text(json.dumps(out), encoding="utf-8")
+        return subprocess.CompletedProcess(a, 0, "", "")
+
+    monkeypatch.setattr(rf.subprocess, "run", fake_run)
+    out = tmp_path / "out"
+    rf.main(["--exe", str(exe), "--manifest", str(manifest), "--contexts", str(contexts), "--out", str(out), "--dose", "0.5"])
+    doc = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    assert doc["cases"]["case-a"]["frame-local@0.5"]["verdict"] == "PARTIAL"
+    assert doc["summary"]["modes"]["whole-tx@0.5"]["n"] == 1
+    assert "dose-response" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        rf.main(["--exe", str(exe), "--manifest", str(manifest), "--contexts", str(contexts), "--out", str(out), "--dose", "1"])
