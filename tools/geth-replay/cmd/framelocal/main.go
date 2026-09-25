@@ -251,7 +251,7 @@ func newInstrumentedHooks(
 				Input: hexutil.Encode(input), Gas: gas, Value: value.String(),
 			})
 			if revertClf != nil {
-				revertClf.onEnter(depth, from, to)
+				revertClf.onEnter(depth, from, to, input)
 			}
 			if frameRec != nil {
 				frameRec.onEnter(depth, typ, from, to, input, gas, value)
@@ -282,7 +282,7 @@ func newInstrumentedHooks(
 				frameRec.onExit(depth, output, gasUsed, err, reverted)
 			}
 			if revertClf != nil {
-				revertClf.onExit(depth, err, reverted)
+				revertClf.onExit(depth, output, err, reverted)
 			}
 		},
 		OnBalanceChange: func(addr common.Address, previous, current *big.Int, _ tracing.BalanceChangeReason) {
@@ -542,6 +542,7 @@ func main() {
 	lossMinFrac := flag.Float64("loss-min-frac", defaultThresholds.LossMinFrac, "L_min as a fraction of the baseline loss of the same token (CAUSE when L' <= L_min)")
 	rho := flag.Float64("rho", defaultThresholds.Rho, "PARTIAL when L_min < L' <= (1-rho)L")
 	shamScale := flag.Float64("sham-scale", 0.5, "sham mode: multiply each 32-byte word of the unrelated read by this factor")
+	unscoped := flag.Bool("unscoped", false, "whole-tx ablation: pin the declared -read-site values for every caller (attacker and third parties too), not only for the victim")
 	var victims stringListFlag
 	var scopeCallers stringListFlag
 	var attackers stringListFlag
@@ -565,6 +566,9 @@ func main() {
 			panic(err)
 		}
 		sites = append(sites, rs)
+	}
+	if *unscoped && (*mode != "whole-tx" || !*scopedPrice || len(sites) == 0) {
+		panic("-unscoped needs -mode whole-tx -scoped-price and at least one -read-site")
 	}
 	if *lossMinFrac < 0 || *lossMinFrac >= 1-*rho || *rho <= 0 || *rho >= 1 {
 		panic("thresholds need 0 <= loss-min-frac < 1-rho and 0 < rho < 1")
@@ -778,6 +782,7 @@ func main() {
 				valueMode := map[string]string{"frame-local": valueNeutral, "isolation": valueObserved, "sham": valueSham, "discover": valueDiscover}[*mode]
 				scopingMgr := newScopingManager(true, victims, priceSources, scopeCallers, s0Snapshot, &header, chainConfig, lambdaPtr, valueMode, replacement, *priceIdentity)
 				scopingMgr.shamScale = *shamScale
+				scopingMgr.attackers = addressSet(attackers)
 				scopingMgr.readSites = sites
 				scopingMgr.maxDiscover = 2000
 
@@ -849,6 +854,8 @@ func main() {
 				// Mode "whole-tx" or "record"
 				scopingMgr := newScopingManager(*scopedPrice, victims, priceSources, scopeCallers, s0Snapshot, &header, chainConfig, lambdaPtr, valueNeutral, replacement, *priceIdentity)
 				scopingMgr.readSites = sites
+				scopingMgr.unscoped = *unscoped
+				scopingMgr.attackers = addressSet(attackers)
 				frameRec := newFrameRecorder(st, victims, attackers, false, -1, nil)
 				revertClf := newRevertClassifier(victims, attackers, nil)
 				run = applyTarget(st, &header, chainConfig, gasPool, &tx, scopingMgr, frameRec, revertClf, nil)
@@ -883,6 +890,9 @@ func main() {
 						Revert:     &revertRes,
 						Thresholds: thresholds,
 					})
+					if *unscoped {
+						verdict.Mode = "whole-tx-unscoped"
+					}
 					resultOutput.WholeTxResult = &verdict
 				}
 			}
@@ -965,4 +975,14 @@ func main() {
 	if !*lean {
 		fmt.Println(string(b))
 	}
+}
+
+func addressSet(list []string) map[common.Address]bool {
+	out := make(map[common.Address]bool)
+	for _, v := range list {
+		if v = strings.TrimSpace(v); v != "" {
+			out[common.HexToAddress(v)] = true
+		}
+	}
+	return out
 }

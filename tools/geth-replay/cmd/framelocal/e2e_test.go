@@ -197,6 +197,13 @@ func TestE2EFrameLocalModes(t *testing.T) {
 	if wholePartial.WholeTxResult == nil || wholePartial.WholeTxResult.Verdict != "PARTIAL" {
 		t.Fatalf("whole-tx partial: %+v", wholePartial.WholeTxResult)
 	}
+	un := runCLI(t, append(append([]string{}, common...), "-mode", "whole-tx", "-scoped-price", "-unscoped", "-read-site", site, "-price-value", word(0))...)
+	if un.WholeTxResult == nil || un.WholeTxResult.Verdict != "CAUSE_BLOCKED" || un.WholeTxResult.Mode != "whole-tx-unscoped" {
+		t.Fatalf("unscoped whole-tx: %+v", un.WholeTxResult)
+	}
+	if ro := un.RevertOrigin; ro == nil || ro.OriginClass != "victim" || ro.RevertKind != "empty" || len(un.ScopedReads) != 1 || un.ScopedReads[0].CallerClass != "victim" {
+		t.Fatalf("unscoped revert detail: %+v %+v", un.RevertOrigin, un.ScopedReads)
+	}
 	if !wholePartial.ReplayGate {
 		t.Logf("replay gate false without a proof file, as expected")
 	}

@@ -73,3 +73,6 @@ docs/dev-notes/
 # Local work areas (worktrees, caches)
 .worktrees/
 .cache/
+
+# M3 builder simulation output
+eval/mev_sim/results*.json

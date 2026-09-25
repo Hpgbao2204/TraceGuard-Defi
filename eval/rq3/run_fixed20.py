@@ -9,6 +9,10 @@ before any intervention) this runs four modes of
 * ``isolation``   identity stubs at the same read sites (must reproduce baseline)
 * ``sham``        a different value at an unrelated read (loss must not change)
 
+and, on request (``--modes``), ``unscoped``: the whole-tx run with the declared
+factor pinned for every caller, attacker and third parties included (the
+scoping ablation).
+
 Verdicts are admitted only when the replay gate holds (authenticated prestate,
 exact prefix, exact baseline target); otherwise the case is
 ``INCONCLUSIVE(replay_gate_failed)``. The SHA-256 of the input manifest is
@@ -36,6 +40,9 @@ DEFAULT_MANIFEST = ROOT / "eval" / "rq3" / "fixed20_cases.json"
 DEFAULT_CONTEXTS = ROOT / "eval" / "results" / "m4" / "b2-contexts-fresh"
 DEFAULT_OUT = ROOT / ".cache" / "rq3"
 MODES = ("whole-tx", "frame-local", "isolation", "sham")
+ALL_MODES = MODES + ("unscoped",)
+WHOLE_TX_MODES = ("whole-tx", "unscoped")
+VERDICT_MODES = ("whole-tx", "unscoped", "frame-local")
 # Dose-response modes are written "whole-tx@0.5" / "frame-local@0.5": the
 # factor is moved only a fraction lambda of the way from observed to S0.
 
@@ -102,6 +109,8 @@ def build_args(exe: str, context: Path, case: dict[str, Any], mode: str, out: Pa
     base, _, lam = mode.partition("@")
     if base == "whole-tx":
         args += ["-mode", "whole-tx", "-scoped-price"]
+    elif base == "unscoped":
+        args += ["-mode", "whole-tx", "-scoped-price", "-unscoped"]
     else:
         args += ["-mode", base]
     if lam:
@@ -113,7 +122,7 @@ def interpret(payload: dict[str, Any] | None, mode: str, error: str | None = Non
     """Reduce one runner output to the fields the summary needs."""
     if payload is None:
         return {"verdict": "INCONCLUSIVE", "reason": error or "runner_error"}
-    key = "whole_tx_result" if base_mode(mode) == "whole-tx" else "frame_local_result"
+    key = "whole_tx_result" if base_mode(mode) in WHOLE_TX_MODES else "frame_local_result"
     res = payload.get(key) or {}
     rec: dict[str, Any] = {
         "verdict": res.get("verdict", "INCONCLUSIVE"),
@@ -130,6 +139,12 @@ def interpret(payload: dict[str, Any] | None, mode: str, error: str | None = Non
     ro = res.get("revert_origin") or payload.get("revert_origin") or {}
     if res.get("reverted") and ro.get("has_revert"):
         rec["revert_origin"] = ro.get("origin_class") or "unknown"
+        rec["revert"] = {k: ro.get(k) for k in ("origin_address", "origin_caller", "origin_selector", "revert_kind",
+                                                 "revert_message", "revert_data", "revert_chain",
+                                                 "intervened_read_before_revert", "multiple_reverts_at_depth")}
+    reads = payload.get("scoped_reads") or []
+    if reads:
+        rec["reads_by_caller"] = dict(sorted(Counter(r.get("caller_class") or "victim" for r in reads).items()))
     if not rec["replay_gate"]:
         rec["raw_verdict"] = rec["verdict"]
         rec["verdict"] = "INCONCLUSIVE"
@@ -190,7 +205,7 @@ def summarize(per_case: dict[str, dict[str, dict[str, Any]]], mode_list: tuple[s
             "inconclusive_reasons": dict(sorted(reasons.items())),
             "revert_origin": dict(sorted(origins.items())),
         }
-        if base_mode(mode) in ("whole-tx", "frame-local"):
+        if base_mode(mode) in VERDICT_MODES:
             valid = len(recs) - verdicts.get("INCONCLUSIVE", 0)
             entry["valid"] = valid
             entry["valid_rate"] = round(valid / len(recs), 4) if recs else None
@@ -214,12 +229,13 @@ def short(rec: dict[str, Any]) -> str:
 
 def render_table(per_case: dict[str, dict[str, dict[str, Any]]], summary: dict[str, Any]) -> str:
     lines = []
-    header = f"{'case':34} " + " ".join(f"{m:26}" for m in MODES)
+    shown = [m for m in ALL_MODES if m in summary["modes"]] or list(MODES)
+    header = f"{'case':34} " + " ".join(f"{m:26}" for m in shown)
     lines.append(header)
     lines.append("-" * len(header))
     for name, recs in per_case.items():
         label = name.replace("defihacklabs-", "")[:34]
-        lines.append(f"{label:34} " + " ".join(f"{short(recs.get(m, {}))[:26]:26}" for m in MODES))
+        lines.append(f"{label:34} " + " ".join(f"{short(recs.get(m, {}))[:26]:26}" for m in shown))
     lines.append("")
     for mode, e in summary["modes"].items():
         if "@" in mode:
@@ -268,6 +284,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="frozen per-case factors from eval.rq3.discover_factors; without it the price-selector catalogue is used")
     ap.add_argument("--render", type=Path, default=None,
                     help="only re-print the tables from an existing summary.json")
+    ap.add_argument("--modes", default=",".join(MODES),
+                    help=f"comma-separated modes out of {','.join(ALL_MODES)}")
     ap.add_argument("--dose", default="", help="comma-separated lambdas in (0,1) for dose-response, e.g. 0.25,0.5,0.75")
     args = ap.parse_args(argv)
 
@@ -288,7 +306,10 @@ def main(argv: list[str] | None = None) -> int:
     lambdas = [float(x) for x in args.dose.split(",") if x.strip()]
     if any(not 0 < lam < 1 for lam in lambdas):
         raise SystemExit("--dose lambdas must be in (0, 1); lambda 1 is the plain run")
-    mode_list = MODES + dose_modes(lambdas)
+    base_modes = tuple(m.strip() for m in args.modes.split(",") if m.strip())
+    if not base_modes or any(m not in ALL_MODES for m in base_modes):
+        raise SystemExit(f"--modes must be a subset of {','.join(ALL_MODES)}")
+    mode_list = base_modes + dose_modes(lambdas)
     factors = None
     if args.factors is not None:
         fdoc = json.loads(args.factors.read_text(encoding="utf-8"))

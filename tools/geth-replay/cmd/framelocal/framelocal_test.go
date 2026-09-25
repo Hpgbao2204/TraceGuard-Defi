@@ -153,10 +153,10 @@ func TestRevertOriginUsesTimeNotDepth(t *testing.T) {
 	clock := clf.clock
 	enter := func(d int, from, to common.Address) uint64 {
 		clock.tick()
-		clf.onEnter(d, from, to)
+		clf.onEnter(d, from, to, nil)
 		return clock.now()
 	}
-	exit := func(d int, reverted bool) { clock.tick(); clf.onExit(d, nil, reverted) }
+	exit := func(d int, reverted bool) { clock.tick(); clf.onExit(d, nil, nil, reverted) }
 
 	enter(0, attacker, attacker)
 	targetSeq := enter(1, attacker, victim)
@@ -349,5 +349,87 @@ func TestReadSitesReplaceCatalogue(t *testing.T) {
 	m.readSites = []readSite{rs}
 	if m.isPriceTarget(a, "50d25bcd") || !m.isPriceTarget(a, "70a08231") || m.isPriceTarget(common.HexToAddress("0x02"), "70a08231") {
 		t.Fatal("declared site must replace the catalogue and match target and selector")
+	}
+}
+
+func TestUnscopedPinsEveryCaller(t *testing.T) {
+	victim := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	attacker := common.HexToAddress("0x0000000000000000000000000000000000000bad")
+	third := common.HexToAddress("0x0000000000000000000000000000000000000009")
+	oracle := common.HexToAddress("0x00000000000000000000000000000000000000a1")
+	s0, err := makeState(map[string]account{
+		strings.ToLower(oracle.Hex()): {Balance: "0x0", Code: "0x60005460005260206000f3"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := getChainConfig(mainnetChainID)
+	rs, _ := parseReadSite(oracle.Hex() + ":70a08231")
+	input := common.FromHex("0x70a08231")
+	for _, unscoped := range []bool{false, true} {
+		m := newScopingManager(true, []string{victim.Hex()}, nil, nil, s0.Copy(), testHeader(), cfg, nil, valueNeutral, nil, false)
+		m.readSites = []readSite{rs}
+		m.unscoped = unscoped
+		m.attackers = addressSet([]string{attacker.Hex()})
+		st := s0.Copy()
+		for _, from := range []common.Address{victim, attacker, third} {
+			m.onEnter(2, 0xfa, from, oracle, input, 100000, st, 0)
+			m.onExit(2, nil, st)
+		}
+		var classes []string
+		for _, r := range m.records {
+			classes = append(classes, r.CallerClass)
+		}
+		want := "victim"
+		if unscoped {
+			want = "victim,attacker,third_party"
+		}
+		if got := strings.Join(classes, ","); got != want {
+			t.Errorf("unscoped=%v: pinned callers %q, want %q", unscoped, got, want)
+		}
+	}
+}
+
+func TestDecodeRevert(t *testing.T) {
+	errString := common.FromHex("0x08c379a0" +
+		"0000000000000000000000000000000000000000000000000000000000000020" +
+		"0000000000000000000000000000000000000000000000000000000000000001" +
+		"4b00000000000000000000000000000000000000000000000000000000000000")
+	panic11 := common.FromHex("0x4e487b71" + "0000000000000000000000000000000000000000000000000000000000000011")
+	cases := []struct {
+		out       []byte
+		err       string
+		kind, msg string
+	}{
+		{errString, "execution reverted", "error_string", "K"},
+		{panic11, "execution reverted", "panic", "0x11 arithmetic_overflow"},
+		{common.FromHex("0xdeadbeef"), "execution reverted", "custom_error", "0xdeadbeef"},
+		{nil, "execution reverted", "empty", ""},
+		{nil, "out of gas", "halt", "out of gas"},
+	}
+	for _, c := range cases {
+		if k, m := decodeRevert(c.out, c.err); k != c.kind || m != c.msg {
+			t.Errorf("decodeRevert(%x, %q) = %s/%q, want %s/%q", c.out, c.err, k, m, c.kind, c.msg)
+		}
+	}
+}
+
+func TestRevertChainNamesOriginFunction(t *testing.T) {
+	clock := &eventClock{}
+	clf := newRevertClassifier([]string{"0x0000000000000000000000000000000000000001"}, []string{"0x0000000000000000000000000000000000000bad"}, nil)
+	clf.clock = clock
+	v := common.HexToAddress("0x01")
+	a := common.HexToAddress("0x0bad")
+	clock.tick()
+	clf.onEnter(0, common.HexToAddress("0xee"), a, common.FromHex("0x12345678"))
+	clock.tick()
+	clf.onEnter(1, a, v, common.FromHex("0xa9059cbb00"))
+	clock.tick()
+	clf.onExit(1, common.FromHex("0xdeadbeef"), nil, true)
+	clock.tick()
+	clf.onExit(0, common.FromHex("0xdeadbeef"), nil, true)
+	r := clf.classify(true, "")
+	if r.OriginClass != "victim" || r.OriginSelector != "0xa9059cbb" || r.RevertMessage != "0xdeadbeef" || len(r.RevertChain) != 2 || r.RevertChain[0].Class != "attacker" {
+		t.Fatalf("revert detail: %+v", r)
 	}
 }
