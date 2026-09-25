@@ -10,6 +10,8 @@ read-site-scoped interventions, revert-origin attribution and frame-local counte
 - `core/` — Stage 1 views/fusion/screener, trace parsing, legacy Anvil fork/mutation harness, harm accounting.
 - `tools/geth-replay/` — Go replay engine (EIP-1186 proof verification, scoping, revert classifier,
   frame recorder). `cmd/framelocal/` is the current frame-local runner. Build: `cd tools/geth-replay && go build ./...`.
+  `vendor/` holds a PATCHED go-ethereum v1.17.5 (adds `vm.CallIntervention` in `core/vm/evm.go` and
+  `core/vm/instructions.go`). Always build in vendor mode; never run `go mod vendor`/`go get` over it, or the patch is lost.
 - `tools/geth-replay-framelocal/` — older frame-local port kept for comparison.
 - `eval/` — experiments: `e1_*` (Stage 1, RQ1–RQ4), `m4_independent/` (RQ5 fidelity vs Nethermind),
   `e4/` and `e5/` (Stage 2 attribution; `e5/` holds many per-case exploratory probes).

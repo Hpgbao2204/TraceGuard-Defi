@@ -24,10 +24,9 @@ __MACOSX/
 .vscode/
 *.swp
 
-# Go replay binary and vendored modules (rebuild with `go build`)
+# Go replay binary (vendor/ holds a PATCHED go-ethereum and must stay committed)
 tools/geth-replay/geth-replay
 tools/geth-replay/geth-replay.exe
-tools/geth-replay/vendor/
 
 # Unpacked replay contexts (source of truth is data/b2-contexts/*.tar.gz)
 eval/results/m4/b2-contexts-fresh/
