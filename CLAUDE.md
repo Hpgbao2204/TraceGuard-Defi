@@ -43,5 +43,8 @@ python -m eval.e1_cli --steps train report       # Stage 1 from trace cache, ~2 
   same read sites and compares log digests, and sham perturbs an unrelated (non-victim) price read. Only
   `cmd/framelocal` is used for RQ3 (`eval/rq3/run_fixed20.py`); the top-level `framelocal.go` and
   `tools/geth-replay-framelocal/` are legacy.
+- RQ3 factors v2 (`eval/rq3/fixed20_factors.json`, frozen) pin `balanceOf` reads that include the victim's own
+  balance; the six v2 CAUSE_BLOCKED cases are pinning artifacts (guard `self_balance_consistency`). v3
+  (`fixed20_factors_v3.json`, `discover_factors --rule v3`) excludes them and must be committed before any run on it.
 - `eval/results/e4_fixed20_smallproject/e4_rq6_evaluation.json` numbers do not reconcile with the run artifacts;
   do not cite them.

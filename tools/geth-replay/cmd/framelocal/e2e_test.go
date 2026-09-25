@@ -175,6 +175,20 @@ func TestE2EFrameLocalModes(t *testing.T) {
 		}
 	}
 
+	site := e2eOracle.Hex() + ":50d25bcd"
+	declared := runCLI(t, append(append([]string{}, common...), "-mode", "frame-local", "-read-site", site, "-price-value", word(0))...)
+	if declared.FrameLocalResult.Verdict != "CAUSE_BLOCKED" {
+		t.Errorf("declared site: %+v", declared.FrameLocalResult)
+	}
+	other := runCLI(t, append(append([]string{}, common...), "-mode", "frame-local", "-read-site", e2eOracle.Hex()+":70a08231", "-price-value", word(0))...)
+	if other.FrameLocalResult.ReasonCode != "not_consumed" {
+		t.Errorf("undeclared selector must not be intervened: %+v", other.FrameLocalResult)
+	}
+	disc := runCLI(t, append(append([]string{}, common...), "-mode", "discover")...)
+	if disc.FrameLocalResult.Verdict != "DISCOVERY" || len(disc.ScopedReads) != 1 || disc.ScopedReads[0].Diverges || disc.ScopedReads[0].ChangedBeforeEntry {
+		t.Errorf("discover: %+v %+v", disc.FrameLocalResult, disc.ScopedReads)
+	}
+
 	whole := runCLI(t, append(append([]string{}, common...), "-mode", "whole-tx", "-scoped-price", "-price-value", word(0))...)
 	if whole.WholeTxResult == nil || whole.WholeTxResult.Verdict != "CAUSE_BLOCKED" {
 		t.Fatalf("whole-tx blocked: %+v", whole.WholeTxResult)
@@ -182,6 +196,22 @@ func TestE2EFrameLocalModes(t *testing.T) {
 	wholePartial := runCLI(t, append(append([]string{}, common...), "-mode", "whole-tx", "-scoped-price", "-price-value", word(60))...)
 	if wholePartial.WholeTxResult == nil || wholePartial.WholeTxResult.Verdict != "PARTIAL" {
 		t.Fatalf("whole-tx partial: %+v", wholePartial.WholeTxResult)
+	}
+	un := runCLI(t, append(append([]string{}, common...), "-mode", "whole-tx", "-scoped-price", "-unscoped", "-read-site", site, "-price-value", word(0))...)
+	if un.WholeTxResult == nil || un.WholeTxResult.Verdict != "CAUSE_BLOCKED" || un.WholeTxResult.Mode != "whole-tx-unscoped" {
+		t.Fatalf("unscoped whole-tx: %+v", un.WholeTxResult)
+	}
+	if ro := un.RevertOrigin; ro == nil || ro.OriginClass != "victim" || ro.RevertKind != "empty" || len(un.ScopedReads) != 1 || un.ScopedReads[0].CallerClass != "victim" {
+		t.Fatalf("unscoped revert detail: %+v %+v", un.RevertOrigin, un.ScopedReads)
+	}
+	// Code intervention: the oracle replaced by code returning 0; no -scoped-price.
+	code := runCLI(t, append(append([]string{}, common...), "-mode", "whole-tx", "-target-code", e2eOracle.Hex()+"=0x600060005260206000f3")...)
+	if code.WholeTxResult == nil || code.WholeTxResult.Verdict != "CAUSE_BLOCKED" {
+		t.Fatalf("code override whole-tx: %+v", code.WholeTxResult)
+	}
+	pr := runCLI(t, append(append([]string{}, common...), "-mode", "probe", "-probe", e2eOracle.Hex()+":0x0dfe1681", "-probe", "zz")...)
+	if len(pr.Probes) != 2 || pr.Probes[0].Output != hexutil.Encode(common2word(100)) || pr.Probes[1].Error == "" {
+		t.Fatalf("probe: %+v", pr.Probes)
 	}
 	if !wholePartial.ReplayGate {
 		t.Logf("replay gate false without a proof file, as expected")

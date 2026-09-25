@@ -76,3 +76,7 @@ docs/dev-notes/
 
 # M3 builder simulation output
 eval/mev_sim/results*.json
+
+# go build output of cmd/framelocal run from tools/geth-replay
+/tools/geth-replay/framelocal
+/tools/geth-replay/framelocal.exe

@@ -4,7 +4,7 @@ Tài liệu giao việc cho phiên Claude Code trên cloud. Đọc hết trướ
 Đọc thêm `CLAUDE.md` ở gốc repo để nắm cấu trúc và các lỗi đã biết.
 
 > **Thay đổi so với bản trước:** MEV/sandwich **không còn là trọng tâm**, mà là *phần mở rộng* của core idea gốc.
-> Bài có đúng **4 RQ**. Ưu tiên cao nhất bây giờ là **RQ3**: sửa các lỗi frame-local rồi chạy lại fixed-20.
+> Bài có đúng **4 RQ**. Ưu tiên cao nhất bây giờ là **RQ3**, giờ là nghiên cứu tính hợp lệ (naive vs gated) trên fixed-20.
 
 ## 1. Câu chuyện của bài
 
@@ -33,7 +33,7 @@ Tài liệu giao việc cho phiên Claude Code trên cloud. Đọc hết trướ
 |---|---|---|---|
 | **RQ1** | Screener có xếp hạng được tấn công dưới FPR đóng băng không, và hình dạng trace bị giới hạn tới đâu? (split chuẩn, dịch chuyển thời gian và family, near-negative, ablation) | `eval/e1_*`, đã có trong bản thảo | Có số |
 | **RQ2** | Replay có xác thực có tái hiện đúng lịch sử và đủ nhanh cho builder không? | Fidelity: Nethermind 20/20 (đã có). Latency: `geth-replay -lean` | Có số lean (W1) |
-| **RQ3** | Dưới revert confound, can thiệp có phạm vi, revert-origin và frame-local cho ra bao nhiêu verdict hợp lệ trên fixed-20? | `tools/geth-replay/cmd/framelocal`, `eval/rq3/fixed20_cases.json` | **Phải sửa lỗi và chạy lại** |
+| **RQ3** | Nghiên cứu tính hợp lệ: khi can thiệp theo factor suy từ quy tắc, bao nhiêu kết luận "đã chặn" còn đứng được sau gate (revert-origin, scoping) và phân loại guard? Bảng "naive vs gated" trên fixed-20. | `tools/geth-replay/cmd/framelocal`, `eval/rq3/fixed20_cases.json` (không sửa), factor v2 (đóng băng 970ce98) và v3 (khai báo trước khi chạy), `eval/rq3/final_table.py`, `eval/rq3/diagnose.py`, `eval/rq3/positive_controls.py` | v2 xong; chờ chẩn đoán, v3, control Euler |
 | **RQ4** | Can thiệp thứ tự có phát hiện và ngăn được sandwich mà không chặn nhầm arbitrage không? | Mô phỏng `eval/mev_sim/` (ground truth), cộng 10–30 case mainnet (shadow mode) | Mô phỏng có kết quả sơ bộ |
 
 ## 3. Giới hạn môi trường cloud (quan trọng)
@@ -71,6 +71,20 @@ Runner mới `eval/rq3/run_fixed20.py`:
 - Unit test bằng fixture tổng hợp.
 
 **Xong khi:** `go test ./...` và pytest pass; có lệnh PowerShell để chủ repo chạy fixed-20 và dán bảng tóm tắt.
+
+**RQ3 là nghiên cứu tính hợp lệ (chủ repo chốt 2026-09-25, sau khi đọc bảng rq3_final của v2):**
+- Câu chuyện: can thiệp theo factor suy từ quy tắc thì trông như khẳng định được nhiều ca, nhưng gate và phân loại guard cho thấy phần lớn là artifact. Bảng chính là **"naive vs gated"**:
+  - naive (can thiệp theo quy tắc, v2): 6/20 CAUSE_BLOCKED;
+  - gated: sau revert-origin, scoping và phân loại guard còn 0/20 bằng chứng mạnh; ca nào INCONCLUSIVE cũng có lý do.
+- Ablation scoping (v2): unscoped có revert bên thứ ba ở 4/7 ca có factor, scoped chỉ 1/7. Scoped có 0 revert do attacker. Unscoped có revert do attacker hay không thì đọc thẳng từ bảng; nếu cũng 0 thì bỏ claim "scoping loại bỏ revert do attacker".
+- Chẩn đoán v2 (`eval/rq3/diagnose.py`): (a) V có phải pair AMM không (`factory()`, `token0()`, `token1()`, `getReserves()` gọi tĩnh trên S0 bằng `-mode probe`); (b) read bị ghim có phải số dư của chính V không (`balanceOf(x)`, `x ∈ V`); (c) hàm của frame gây revert và chuỗi revert. Đã kiểm keccak: `0x6a627842` = `mint(address)`, `0xf04f2707` = Balancer `receiveFlashLoan`, `0x920f5c84` = Aave `executeOperation`.
+- Loại guard `self_balance_consistency`, xét trước mọi loại khác: can thiệp đã ghim `balanceOf(V)` của chính V, nên kiểm tra nhất quán giữa số dư và sổ sách nội bộ (input của pair, `K`) chắc chắn thất bại. Không tính là bằng chứng nhân quả. Các loại còn lại giữ như cũ: `security` (mạnh), `consistency`, `other`, `unknown`.
+- **Factor v3** (khai báo và commit trước khi chạy, `eval/rq3/fixed20_factors_v3.json`): quy tắc v2 bỏ đi (1) `balanceOf(x)` với `x ∈ V`; (2) các selector không mang giá trị kinh tế `approve`, `allowance`, `supportsInterface`. Site `balanceOf` của v3 ghi rõ holder (`target:selector:args`) để không ghim nhầm số dư của V ở cùng token. v3 phải là tập con của v2 theo (target, selector). Không chỉnh gì khác. Báo v2 và v3 cạnh nhau (`final_table --compare`). Nếu v3 ra 0 factor thì báo thẳng.
+- **Positive control** (`eval/rq3/positive_controls.py`):
+  - Euler: khôi phục `checkLiquidity` trong `donateToReserves` bằng runtime EToken vá theo PR 199 (`-target-code addr=@artifact`). Kỳ vọng: CAUSE_BLOCKED, `e/collateral-violation`, guard `security`. Euler gọi module bằng DELEGATECALL, nên lần chạy này phân loại theo storage context (`-delegate-context`); fixed-20 không dùng cờ này.
+  - bZx (flash suppression) chưa chạy được: repo chưa có script dựng B2 context cho bZx. Cần gì được ghi trong script (`BZX_NEEDS`).
+- Frame-local là cơ chế phụ. Bằng chứng chỉ có ở chế độ danh mục selector (veth, exchangeissuance). Sham ghi là limitation (chỉ áp dụng được 1/20).
+- `fixed20_cases.json` không sửa.
 
 ### W3: RQ4 phần mô phỏng (PR #3, `eval/mev_sim/`)
 
@@ -116,7 +130,10 @@ Runner mới `eval/rq3/run_fixed20.py`:
 | Screener xếp hạng dưới FPR đóng băng | RQ1 (đã có) | — |
 | Replay tái hiện đúng lịch sử | RQ2 fidelity (đã có) | — |
 | Đủ nhanh cho builder | `target_evm` ở chế độ lean (W1) | Bỏ khỏi abstract |
-| Frame-local tăng số verdict hợp lệ | RQ3 sau khi sửa (W2) | Báo cáo coverage thấp một cách trung thực |
+| Read-site scoping loại bỏ revert confound do attacker | RQ3 ablation `unscoped` so với scoped (W2) | Bỏ claim nếu unscoped cũng ra 0 revert do attacker |
+| Gate và phân loại guard lọc được kết luận sai của can thiệp theo quy tắc | RQ3 bảng naive vs gated, chẩn đoán v2, v3 (W2) | Báo đúng số đã lọc |
+| Pipeline nhận ra được một guard bảo mật thật | Positive control Euler (W2) | Ghi là chưa có positive control |
+| Frame-local tăng số verdict hợp lệ | RQ3 (W2): chỉ có ở chế độ danh mục selector (veth, exchangeissuance) | Ghi là cơ chế phụ, báo đúng phạm vi |
 | Ngăn sandwich, không chặn nhầm arbitrage | W3 mô phỏng cộng W4 mainnet | Chỉ nói "trên mô phỏng" |
 | Chống kẻ tấn công thích nghi | W3 mục 3 | Ghi là limitation |
 | Không cherry-pick | Hash manifest commit trước khi chạy (W2, W4) | Không nộp số đó |
@@ -134,7 +151,7 @@ Runner mới `eval/rq3/run_fixed20.py`:
 |---|---|---|
 | M1 `-drop-tx` | xong, đã merge (PR #1) | Chạy trên 3 context thật: comparable đúng; exchangeissuance bị nonce gap nên ra incomparable, đúng mong đợi |
 | W1 `-lean` | xong (PR #2) | Đo trên 3 context thật (Windows): base-lean `acceptance_gate=true` 3/3; output 0.07–0.15 MB (full-trace 490–662 MB); `target_evm` lean 6.1–10.6 ms, `evm_replay` 12.9–17.7 ms (full-trace 1543–1625 ms); `context_load` 27–50 ms đo riêng. Số latency giả định builder đã có state trong bộ nhớ. |
-| W2 RQ3 sửa frame-local | PR mở, chờ chủ repo chạy fixed-20 | Đã sửa 6 điểm trong `cmd/framelocal` + lỗi đếm Transfer hai lần; runner `eval/rq3/run_fixed20.py`. Mặc định L_min = 1% L theo từng token, ρ = 0.1 (cần đối chiếu với paper) |
+| W2 RQ3 | PR #5 mở | v2 (970ce98): 7/20 có factor; can thiệp theo quy tắc khẳng định 6/20 CAUSE_BLOCKED; unscoped revert bên thứ ba 4/7, scoped 1/7. Bảng rq3_final (chủ repo đọc): cả 6 ca chặn nhiều khả năng là artifact do ghim `balanceOf` (V là pair Uniswap V2, revert `INSUFFICIENT_INPUT_AMOUNT`/`mint`), nên 0/20 bằng chứng mạnh. Đang làm: chẩn đoán 7 ca, factor v3, positive control Euler |
 | W3 RQ4 mô phỏng | PR #3, đã rebase; xong mục 1, 2 | seed 7, 200 slot, tg_closed: EXCLUDE-on-CAUSE 197/227 sandwich, 0/409 benign; DEFAULT (ordering confound) 30 sandwich decoy + 7 benign (victim revert khi bỏ front-run), builder fail-closed nên cả 37 bị loại. Mục 3, 4 đã có số theo từng kiểu; còn mục 5 (nhiều seed). Latency là RPC anvil, không dùng cho claim; chưa có pool V3 |
 | W4 RQ4 mainnet | chưa bắt đầu | cần RPC, chạy ở local |
 | W5 hình | chưa bắt đầu | |

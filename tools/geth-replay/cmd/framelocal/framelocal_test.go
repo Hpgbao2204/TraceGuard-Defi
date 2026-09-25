@@ -2,9 +2,12 @@ package main
 
 import (
 	"math/big"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
@@ -151,10 +154,10 @@ func TestRevertOriginUsesTimeNotDepth(t *testing.T) {
 	clock := clf.clock
 	enter := func(d int, from, to common.Address) uint64 {
 		clock.tick()
-		clf.onEnter(d, from, to)
+		clf.onEnter(d, 0xf1, from, to, nil)
 		return clock.now()
 	}
-	exit := func(d int, reverted bool) { clock.tick(); clf.onExit(d, nil, reverted) }
+	exit := func(d int, reverted bool) { clock.tick(); clf.onExit(d, nil, nil, reverted) }
 
 	enter(0, attacker, attacker)
 	targetSeq := enter(1, attacker, victim)
@@ -277,5 +280,203 @@ func TestScopingOnlyInsideTargetFrame(t *testing.T) {
 	s.onExit(2, nil, st)
 	if len(s.records) != 1 || s.records[0].Caller != other.Hex() {
 		t.Fatalf("sham sites: %+v", s.records)
+	}
+}
+
+func TestParseReadSite(t *testing.T) {
+	ok := []string{"0x00000000000000000000000000000000000000a1:0x70a08231", "*:70a08231", "0x00000000000000000000000000000000000000a1:*"}
+	for _, v := range ok {
+		if _, err := parseReadSite(v); err != nil {
+			t.Errorf("%s: %v", v, err)
+		}
+	}
+	for _, v := range []string{"*:*", "nope", "0x01:0x1234", "zz:70a08231"} {
+		if _, err := parseReadSite(v); err == nil {
+			t.Errorf("%s must be rejected", v)
+		}
+	}
+}
+
+// discover flags a read whose value changed since S0 and leaves an unchanged
+// read alone.
+func TestDiscoverFlagsDivergentReads(t *testing.T) {
+	victim := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	oracle := common.HexToAddress("0x00000000000000000000000000000000000000a1")
+	s0, err := makeState(map[string]account{
+		strings.ToLower(oracle.Hex()): {Balance: "0x0", Code: "0x60005460005260206000f3", Storage: map[string]string{
+			"0x0000000000000000000000000000000000000000000000000000000000000000": "0x0000000000000000000000000000000000000000000000000000000000000005"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := getChainConfig(mainnetChainID)
+	m := newScopingManager(true, []string{victim.Hex()}, nil, nil, s0.Copy(), testHeader(), cfg, nil, valueDiscover, nil, false)
+	input := common.FromHex("0x70a08231")
+	m.onEnter(2, 0xfa, victim, oracle, input, 100000, s0.Copy(), 0)
+	moved := s0.Copy()
+	moved.SetState(oracle, common.Hash{}, common.BigToHash(big.NewInt(7)))
+	m.onEnter(2, 0xfa, victim, oracle, input, 100000, moved, 0)
+	m.onEnter(2, 0xfa, common.HexToAddress("0x09"), oracle, input, 100000, moved, 0) // not V
+	if len(m.records) != 2 {
+		t.Fatalf("records = %d, want 2 (reads by V only)", len(m.records))
+	}
+	if m.records[0].Diverges || !m.records[1].Diverges {
+		t.Fatalf("divergence flags: %+v", m.records)
+	}
+	// Changed before entry vs changed inside the frame by V.
+	entry := s0.Copy()
+	m.entryState = func() *state.StateDB { return entry }
+	m.onEnter(2, 0xfa, victim, oracle, input, 100000, moved, 0)
+	if r := m.records[2]; !r.Diverges || r.ChangedBeforeEntry {
+		t.Fatalf("change made inside the frame must not count as pre-entry: %+v", r)
+	}
+	entry = moved
+	m.onEnter(2, 0xfa, victim, oracle, input, 100000, moved, 0)
+	if r := m.records[3]; !r.ChangedBeforeEntry {
+		t.Fatalf("change before entry must count: %+v", r)
+	}
+	if moved.GetCode(oracle) == nil || len(m.activeStubs) != 0 {
+		t.Fatal("discover must not stub")
+	}
+}
+
+func TestReadSitesReplaceCatalogue(t *testing.T) {
+	m := &scopingManager{}
+	a := common.HexToAddress("0x00000000000000000000000000000000000000a1")
+	if !m.isPriceTarget(a, "50d25bcd", "") || m.isPriceTarget(a, "70a08231", "") {
+		t.Fatal("default catalogue: latestAnswer yes, balanceOf no")
+	}
+	rs, _ := parseReadSite(a.Hex() + ":70a08231")
+	m.readSites = []readSite{rs}
+	if m.isPriceTarget(a, "50d25bcd", "") || !m.isPriceTarget(a, "70a08231", "") || m.isPriceTarget(common.HexToAddress("0x02"), "70a08231", "") {
+		t.Fatal("declared site must replace the catalogue and match target and selector")
+	}
+}
+
+func TestUnscopedPinsEveryCaller(t *testing.T) {
+	victim := common.HexToAddress("0x0000000000000000000000000000000000000001")
+	attacker := common.HexToAddress("0x0000000000000000000000000000000000000bad")
+	third := common.HexToAddress("0x0000000000000000000000000000000000000009")
+	oracle := common.HexToAddress("0x00000000000000000000000000000000000000a1")
+	s0, err := makeState(map[string]account{
+		strings.ToLower(oracle.Hex()): {Balance: "0x0", Code: "0x60005460005260206000f3"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := getChainConfig(mainnetChainID)
+	rs, _ := parseReadSite(oracle.Hex() + ":70a08231")
+	input := common.FromHex("0x70a08231")
+	for _, unscoped := range []bool{false, true} {
+		m := newScopingManager(true, []string{victim.Hex()}, nil, nil, s0.Copy(), testHeader(), cfg, nil, valueNeutral, nil, false)
+		m.readSites = []readSite{rs}
+		m.unscoped = unscoped
+		m.attackers = addressSet([]string{attacker.Hex()})
+		st := s0.Copy()
+		for _, from := range []common.Address{victim, attacker, third} {
+			m.onEnter(2, 0xfa, from, oracle, input, 100000, st, 0)
+			m.onExit(2, nil, st)
+		}
+		var classes []string
+		for _, r := range m.records {
+			classes = append(classes, r.CallerClass)
+		}
+		want := "victim"
+		if unscoped {
+			want = "victim,attacker,third_party"
+		}
+		if got := strings.Join(classes, ","); got != want {
+			t.Errorf("unscoped=%v: pinned callers %q, want %q", unscoped, got, want)
+		}
+	}
+}
+
+func TestDecodeRevert(t *testing.T) {
+	errString := common.FromHex("0x08c379a0" +
+		"0000000000000000000000000000000000000000000000000000000000000020" +
+		"0000000000000000000000000000000000000000000000000000000000000001" +
+		"4b00000000000000000000000000000000000000000000000000000000000000")
+	panic11 := common.FromHex("0x4e487b71" + "0000000000000000000000000000000000000000000000000000000000000011")
+	cases := []struct {
+		out       []byte
+		err       string
+		kind, msg string
+	}{
+		{errString, "execution reverted", "error_string", "K"},
+		{panic11, "execution reverted", "panic", "0x11 arithmetic_overflow"},
+		{common.FromHex("0xdeadbeef"), "execution reverted", "custom_error", "0xdeadbeef"},
+		{nil, "execution reverted", "empty", ""},
+		{nil, "out of gas", "halt", "out of gas"},
+	}
+	for _, c := range cases {
+		if k, m := decodeRevert(c.out, c.err); k != c.kind || m != c.msg {
+			t.Errorf("decodeRevert(%x, %q) = %s/%q, want %s/%q", c.out, c.err, k, m, c.kind, c.msg)
+		}
+	}
+}
+
+func TestRevertChainNamesOriginFunction(t *testing.T) {
+	clock := &eventClock{}
+	clf := newRevertClassifier([]string{"0x0000000000000000000000000000000000000001"}, []string{"0x0000000000000000000000000000000000000bad"}, nil)
+	clf.clock = clock
+	v := common.HexToAddress("0x01")
+	a := common.HexToAddress("0x0bad")
+	clock.tick()
+	clf.onEnter(0, 0xf1, common.HexToAddress("0xee"), a, common.FromHex("0x12345678"))
+	clock.tick()
+	clf.onEnter(1, 0xf4, a, v, common.FromHex("0xa9059cbb00"))
+	clock.tick()
+	clf.onExit(1, common.FromHex("0xdeadbeef"), nil, true)
+	clock.tick()
+	clf.onExit(0, common.FromHex("0xdeadbeef"), nil, true)
+	r := clf.classify(true, "")
+	if r.OriginClass != "victim" || r.OriginSelector != "0xa9059cbb" || r.RevertMessage != "0xdeadbeef" || len(r.RevertChain) != 2 || r.RevertChain[0].Class != "attacker" ||
+		r.OriginContextClass != "attacker" {
+		t.Fatalf("revert detail: %+v", r)
+	}
+	clf.delegateContext = true
+	if r := clf.classify(true, ""); r.OriginClass != "attacker" {
+		t.Fatalf("delegate-context must classify by the storage context: %+v", r)
+	}
+}
+
+func TestReadSiteArgs(t *testing.T) {
+	a := common.HexToAddress("0x00000000000000000000000000000000000000a1")
+	holder := "000000000000000000000000" + strings.Repeat("11", 20)
+	rs, err := parseReadSite(a.Hex() + ":70a08231:" + holder)
+	if err != nil || rs.args != holder {
+		t.Fatalf("parse args: %+v %v", rs, err)
+	}
+	m := &scopingManager{readSites: []readSite{rs}}
+	other := "000000000000000000000000" + strings.Repeat("22", 20)
+	if !m.isPriceTarget(a, "70a08231", holder) || m.isPriceTarget(a, "70a08231", other) {
+		t.Fatal("args must restrict the site to one holder")
+	}
+	if _, err := parseReadSite(a.Hex() + ":70a08231:zz"); err == nil {
+		t.Fatal("bad args must be rejected")
+	}
+	if got := argsHex(common.FromHex("0x70a08231" + holder)); got != holder {
+		t.Fatalf("argsHex = %s", got)
+	}
+}
+
+func TestTargetCodeCopyAndFile(t *testing.T) {
+	src := common.HexToAddress("0x00000000000000000000000000000000000000a1")
+	dst := common.HexToAddress("0x000000000000000000000000000000000000f1a1")
+	st, err := makeState(map[string]account{strings.ToLower(src.Hex()): {Balance: "0x0", Code: "0x6001"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	art := dir + "/a.json"
+	if err := os.WriteFile(art, []byte(`{"deployedBytecode":"0x6002"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	applyTargetOverrides(st, []string{src.Hex() + "=@" + art}, nil, dst.Hex()+"="+src.Hex())
+	if got := common.Bytes2Hex(st.GetCode(dst)); got != "6001" {
+		t.Fatalf("copy must keep the original code, got %s", got)
+	}
+	if got := common.Bytes2Hex(st.GetCode(src)); got != "6002" {
+		t.Fatalf("@file artifact not loaded, got %s", got)
 	}
 }

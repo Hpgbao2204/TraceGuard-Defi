@@ -1,0 +1,172 @@
+{
+  "schema": 1,
+  "rule": "read sites (target, selector) called by V inside the harm frame whose value at harm-frame entry differs from S0, static-evaluable on both; neutral value = S0 value",
+  "manifest": "fixed20_cases.json",
+  "manifest_sha256": "95b4cf5199239ae50f66feb9492b60c37e30423c046f03eebc1c49850c9286d9",
+  "exe_sha256": "3580c2da214bd5e8183cd38a474e5c45c7da52dbff050a93f08fc8fbca77214a",
+  "created_at": "2026-09-25T11:02:52Z",
+  "cases": {
+    "defihacklabs-alkemiearn-2026-03-10": {
+      "harm_frame": 0,
+      "n_reads": 9,
+      "n_changed_before_entry": 0,
+      "sites": [],
+      "reason": "no_read_changed_before_entry"
+    },
+    "defihacklabs-erc20transfer-2024-10-22": {
+      "harm_frame": 1,
+      "n_reads": 1,
+      "n_changed_before_entry": 0,
+      "sites": [],
+      "reason": "no_read_changed_before_entry"
+    },
+    "defihacklabs-exchangeissuance-index-coop-2026-07-30": {
+      "harm_frame": 1,
+      "n_reads": 77,
+      "n_changed_before_entry": 2,
+      "sites": [
+        "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2:0x70a08231"
+      ],
+      "reason": null
+    },
+    "defihacklabs-fixedtokenbswap-2025-06-15": {
+      "harm_frame": -1,
+      "n_reads": 0,
+      "n_changed_before_entry": 0,
+      "sites": [],
+      "reason": "no_harm_frame"
+    },
+    "defihacklabs-multitransferswap-2025-04-27": {
+      "harm_frame": 10,
+      "n_reads": 7,
+      "n_changed_before_entry": 4,
+      "sites": [
+        "0x9fb0a31799fa1243fb53dbcc57fd531e13753437:0x70a08231",
+        "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2:0x70a08231"
+      ],
+      "reason": null
+    },
+    "defihacklabs-muredistribution-2026-05-21": {
+      "harm_frame": 1,
+      "n_reads": 15,
+      "n_changed_before_entry": 5,
+      "sites": [
+        "0x26e5415c5ba86b4a521aaebf538623b9f32cd467:0x01ffc9a7",
+        "0x26e5415c5ba86b4a521aaebf538623b9f32cd467:0x1626ba7e",
+        "0x26e5415c5ba86b4a521aaebf538623b9f32cd467:0xd5f3c685"
+      ],
+      "reason": null
+    },
+    "defihacklabs-onyxdao-2024-09-26": {
+      "harm_frame": 26,
+      "n_reads": 96,
+      "n_changed_before_entry": 0,
+      "sites": [],
+      "reason": "no_read_changed_before_entry"
+    },
+    "defihacklabs-rnspay-2025-03-06": {
+      "harm_frame": 1,
+      "n_reads": 3,
+      "n_changed_before_entry": 1,
+      "sites": [
+        "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48:0x70a08231"
+      ],
+      "reason": null
+    },
+    "defihacklabs-sashatoken-2024-10-06": {
+      "harm_frame": 0,
+      "n_reads": 8,
+      "n_changed_before_entry": 0,
+      "sites": [],
+      "reason": "no_read_changed_before_entry"
+    },
+    "defihacklabs-sbr-token-2025-03-07": {
+      "harm_frame": 1,
+      "n_reads": 3,
+      "n_changed_before_entry": 1,
+      "sites": [
+        "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2:0x70a08231"
+      ],
+      "reason": null
+    },
+    "defihacklabs-silofinance-2025-06-25": {
+      "harm_frame": -1,
+      "n_reads": 0,
+      "n_changed_before_entry": 0,
+      "sites": [],
+      "reason": "no_harm_frame"
+    },
+    "defihacklabs-sizeflashloanlooping-2025-08-15": {
+      "harm_frame": 0,
+      "n_reads": 15,
+      "n_changed_before_entry": 7,
+      "sites": [
+        "0x4b85b444aaacf377d4336aee41ef59a4252c40a9:0x095ea7b3",
+        "0x4b85b444aaacf377d4336aee41ef59a4252c40a9:0x1970e5ea",
+        "0x4b85b444aaacf377d4336aee41ef59a4252c40a9:0x70a08231",
+        "0x4b85b444aaacf377d4336aee41ef59a4252c40a9:0x73d4a13a",
+        "0x4b85b444aaacf377d4336aee41ef59a4252c40a9:0xac9650d8",
+        "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2:0x70a08231"
+      ],
+      "reason": null
+    },
+    "defihacklabs-strategyllamalendconvex-2025-07-16": {
+      "harm_frame": 1,
+      "n_reads": 13,
+      "n_changed_before_entry": 0,
+      "sites": [],
+      "reason": "no_read_changed_before_entry"
+    },
+    "defihacklabs-summerfi-2026-07-06": {
+      "harm_frame": 0,
+      "n_reads": 533,
+      "n_changed_before_entry": 0,
+      "sites": [],
+      "reason": "no_read_changed_before_entry"
+    },
+    "defihacklabs-thetanuts-2026-06-15": {
+      "harm_frame": 3,
+      "n_reads": 5,
+      "n_changed_before_entry": 0,
+      "sites": [],
+      "reason": "no_read_changed_before_entry"
+    },
+    "defihacklabs-unistreetlaunchpad-2026-08-06": {
+      "harm_frame": -1,
+      "n_reads": 0,
+      "n_changed_before_entry": 0,
+      "sites": [],
+      "reason": "no_harm_frame"
+    },
+    "defihacklabs-unverified-6f7a-2025-08-22": {
+      "harm_frame": 1,
+      "n_reads": 3,
+      "n_changed_before_entry": 1,
+      "sites": [
+        "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2:0x70a08231"
+      ],
+      "reason": null
+    },
+    "defihacklabs-usm-2026-08-09": {
+      "harm_frame": 2,
+      "n_reads": 3,
+      "n_changed_before_entry": 0,
+      "sites": [],
+      "reason": "no_read_changed_before_entry"
+    },
+    "defihacklabs-veth-2024-11-14": {
+      "harm_frame": 0,
+      "n_reads": 4,
+      "n_changed_before_entry": 0,
+      "sites": [],
+      "reason": "no_read_changed_before_entry"
+    },
+    "defihacklabs-yeth-2025-12-01": {
+      "harm_frame": -1,
+      "n_reads": 0,
+      "n_changed_before_entry": 0,
+      "sites": [],
+      "reason": "no_harm_frame"
+    }
+  }
+}
