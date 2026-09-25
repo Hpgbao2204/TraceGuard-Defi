@@ -78,7 +78,7 @@ def factor_sites(path: Path) -> dict[str, set[str]]:
 
 def panel_a(out: Path, cases, f2, f3) -> None:
     rng = np.random.default_rng(3)
-    fig, ax = plt.subplots(figsize=(1.30, 1.95))
+    fig, ax = plt.subplots(figsize=(2.05, 2.0))
     counts = np.zeros((len(GROUPS), 2), int)
     for name, d in cases.items():
         for r in d.get("scoped_reads") or []:
@@ -99,7 +99,6 @@ def panel_a(out: Path, cases, f2, f3) -> None:
             ax.scatter(x, g + rng.uniform(-0.3, 0.3), s=size, color=color, lw=0, alpha=0.85 if z > 3 else 0.5,
                        zorder=z)
     ax.axvspan(1.2e-7, 7e-7, color="#f1f0ec", zorder=0, lw=0)
-    ax.text(3e-7, -0.72, "=", fontsize=5.6, color=INK2, ha="center", va="bottom")
     for g in range(len(GROUPS)):
         ax.text(3e3, g, f"{counts[g, 1]}/{counts[g, 0]}", fontsize=5.6, color=INK, va="center", ha="left")
     ax.text(3e3, -0.75, "changed", fontsize=5.2, color=INK2, ha="left", va="bottom")
@@ -114,8 +113,8 @@ def panel_a(out: Path, cases, f2, f3) -> None:
     ax.spines["left"].set_visible(False)
     ax.grid(True, axis="x", lw=0.3, color="#e6e5e0", zorder=0)
     ax.legend(handles=[Line2D([], [], ls="", marker="o", ms=3.4, color=c) for c in (C_V2, C_V3, C_PASSIVE)],
-              labels=["factor site, v2 only", "factor site, v2 and v3", "other read"], loc="lower center",
-              bbox_to_anchor=(0.42, 1.0), ncol=1, frameon=False, fontsize=5.4, handletextpad=0.2,
+              labels=["v2 factor", "v2+v3 factor", "other"], loc="lower center",
+              bbox_to_anchor=(0.45, 1.0), ncol=3, frameon=False, fontsize=5.4, handletextpad=0.2,
               borderaxespad=0.1, labelspacing=0.15)
     fig.savefig(out / "fig5a.pdf")
     plt.close(fig)
@@ -124,7 +123,7 @@ def panel_a(out: Path, cases, f2, f3) -> None:
 def panel_b(out: Path, cases, f2, summary) -> None:
     final = {r["case"]: r for r in summary["rows"]}
     order = sorted(cases, key=lambda n: (0 if f2.get(n) else 1, -len(cases[n].get("entry_frames") or [])))
-    fig, ax = plt.subplots(figsize=(1.55, 1.95))
+    fig, ax = plt.subplots(figsize=(2.15, 2.0))
     for y, name in enumerate(order):
         d = cases[name]
         frames = d.get("entry_frames") or []
@@ -147,9 +146,9 @@ def panel_b(out: Path, cases, f2, summary) -> None:
         fin = str(row.get("final", ""))
         tag = "SB" if "CAUSE" in fin else ("T" if "third_party" in fin else
                                              ("nf" if "no_harm_frame" in str(row.get("final_reason", "")) + fin else "–"))
-        ax.text(1.03, y, tag, fontsize=5.2, color=INK2, va="center", ha="left")
+        ax.text(1.03, y, tag, fontsize=5.6, color=INK2, va="center", ha="left")
     ax.set_yticks(range(len(order)))
-    ax.set_yticklabels([short(n) for n in order], fontsize=5.0)
+    ax.set_yticklabels([short(n) for n in order], fontsize=5.6)
     ax.set_ylim(len(order) - 0.5, -0.5)
     ax.set_xlim(0, 1)
     ax.set_xticks([0, 0.5, 1])
@@ -161,8 +160,8 @@ def panel_b(out: Path, cases, f2, summary) -> None:
     ax.legend(handles=[Rectangle((0, 0), 1, 1, color=C_VICTIM, alpha=0.55),
                        Line2D([], [], color=MUTED, lw=0.6),
                        Line2D([], [], ls="", marker="|", ms=4, mew=0.9, color=C_NEAR)],
-              labels=["harm frame", "other victim frame", "changed read"], loc="lower center",
-              bbox_to_anchor=(0.45, 1.0), ncol=2, frameon=False, fontsize=5.2, handlelength=1.0,
+              labels=["harm frame", "other frame", "changed read"], loc="lower center",
+              bbox_to_anchor=(0.45, 1.0), ncol=3, frameon=False, fontsize=5.2, handlelength=1.0,
               columnspacing=0.5, handletextpad=0.3, borderaxespad=0.1)
     fig.savefig(out / "fig5b.pdf")
     plt.close(fig)
@@ -243,8 +242,7 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     panel_a(args.out, cases, f2, f3)
     panel_b(args.out, cases, f2, summary)
-    panel_c(args.out, summary)
-    print("wrote", *(args.out / f"fig5{p}.pdf" for p in "abc"))
+    print("wrote", *(args.out / f"fig5{p}.pdf" for p in "ab"))
 
 
 if __name__ == "__main__":

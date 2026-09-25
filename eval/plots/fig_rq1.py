@@ -128,15 +128,15 @@ def panel_a(out: Path, g, s) -> None:
     ss = np.array([r[2] for r in srows])
     curves = [
         # (label, labels, scores, tau, colour, linestyle, reported AUPRC)
-        ("stratified (leaky)", sl, ss, stau, MUTED, (0, (2.5, 1.5)), strat["auc_pr"]),
-        ("grouped, all bg.", lab, sc, tau, INK, "-", grouped["auc_pr"]),
-        ("grouped, ordinary bg.", lab[(lab == 1) | is_ord], sc[(lab == 1) | is_ord], tau, C_ORD, "-",
+        ("stratified", sl, ss, stau, MUTED, (0, (2.5, 1.5)), strat["auc_pr"]),
+        ("grouped", lab, sc, tau, INK, "-", grouped["auc_pr"]),
+        ("ordinary only", lab[(lab == 1) | is_ord], sc[(lab == 1) | is_ord], tau, C_ORD, "-",
          paired["ordinary"]["metrics"]["auc_pr"]),
     ]
     for name, y, x, t_, color, ls, auprc in curves:
         r, p, _ = pr_curve(y, x)
         ax.step(r, p, where="post", color=color, lw=1.0, ls=ls, zorder=3,
-                label=f"{name} ({auprc:.3f})")
+                label=f"{name} {auprc:.2f}")
         rr, pp, _, _ = operating_point(y, x, t_)
         ax.plot(rr, pp, "o", ms=3.4, mfc=color, mec="white", mew=0.6, zorder=4)
     ax.set_xlim(0, 1.0)
