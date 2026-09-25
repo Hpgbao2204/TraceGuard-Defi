@@ -86,7 +86,7 @@ def test_end_to_end_with_stubbed_binary(tmp_path, monkeypatch, capsys):
     assert rf.main(["--exe", str(exe), "--manifest", str(manifest), "--contexts", str(contexts), "--out", str(out)]) == 0
 
     lock = json.loads((out / "manifest_lock.json").read_text(encoding="utf-8"))
-    assert lock["manifest_sha256"] == rf.sha256_file(manifest)
+    assert lock["manifest_sha256"] == rf.sha256_text(manifest)
     doc = json.loads((out / "summary.json").read_text(encoding="utf-8"))
     assert doc["manifest_sha256"] == lock["manifest_sha256"]
     modes = doc["summary"]["modes"]
@@ -124,7 +124,7 @@ def test_runner_uses_frozen_factors(tmp_path, monkeypatch):
     manifest = tmp_path / "cases.json"
     manifest.write_text(json.dumps({"schema": 1, "cases": {"case-a": CASE, "case-b": CASE}}), encoding="utf-8")
     factors = tmp_path / "factors.json"
-    factors.write_text(json.dumps({"manifest_sha256": rf.sha256_file(manifest), "cases": {
+    factors.write_text(json.dumps({"manifest_sha256": rf.sha256_text(manifest), "cases": {
         "case-a": {"sites": ["0xaa:0x70a08231"], "reason": None},
         "case-b": {"sites": [], "reason": "no_harm_frame"}}}), encoding="utf-8")
     exe = tmp_path / "framelocal.exe"
@@ -143,7 +143,7 @@ def test_runner_uses_frozen_factors(tmp_path, monkeypatch):
              "--factors", str(factors)])
     assert len(seen) == 4 and all(a[a.index("-read-site") + 1] == "0xaa:0x70a08231" for a in seen)
     doc = json.loads((out / "summary.json").read_text(encoding="utf-8"))
-    assert doc["factors_sha256"] == rf.sha256_file(factors)
+    assert doc["factors_sha256"] == rf.sha256_text(factors)
     assert doc["cases"]["case-b"]["frame-local"]["reason"] == "no_declared_factor:no_harm_frame"
     assert doc["summary"]["modes"]["frame-local"]["inconclusive_reasons"] == {"no_declared_factor": 1}
 
@@ -152,3 +152,10 @@ def test_runner_uses_frozen_factors(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
         rf.main(["--exe", str(exe), "--manifest", str(manifest), "--contexts", str(contexts), "--out", str(out),
                  "--factors", str(other)])
+
+
+def test_text_hash_ignores_line_endings(tmp_path):
+    lf, crlf = tmp_path / "lf.json", tmp_path / "crlf.json"
+    lf.write_bytes(b'{\n  "a": 1\n}\n')
+    crlf.write_bytes(b'{\r\n  "a": 1\r\n}\r\n')
+    assert rf.sha256_text(lf) == rf.sha256_text(crlf)

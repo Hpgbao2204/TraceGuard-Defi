@@ -17,7 +17,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -58,6 +57,11 @@ func mergeAccounts(rows []row) (map[string]account, error) {
 			return nil, err
 		}
 		for address, value := range incoming {
+			// An authenticated absence is authoritative.
+			if value.Exists != nil && !*value.Exists {
+				merged[address] = account{Exists: value.Exists}
+				continue
+			}
 			current := merged[address]
 			if current.Balance == "" && value.Balance != "" {
 				current.Balance = value.Balance
@@ -331,7 +335,7 @@ func applyTarget(
 	onEVM func(*vm.EVM),
 ) *targetRun {
 	hooks, frames, revertData, balanceChanges, logs, opcodes := newInstrumentedHooks(st, scopingMgr, rec, revertClf)
-	blockContext := core.NewEVMBlockContext(header, chainContext{header: header, config: chainConfig}, &header.Coinbase)
+	blockContext := core.NewEVMBlockContext(header, chainFor(header, chainConfig), &header.Coinbase)
 	evm := vm.NewEVM(blockContext, st, chainConfig, vm.Config{Tracer: hooks})
 	if onEVM != nil {
 		onEVM(evm)
@@ -424,37 +428,11 @@ type output struct {
 	// ReplayGate: authenticated prestate, exact prefix, and exact baseline
 	// target. Verdicts are only admissible when it holds.
 	ReplayGate bool `json:"replay_gate"`
-	Lean       bool `json:"lean,omitempty"`
+	// AuthenticatedInitialState: the StateDB was seeded from EIP-1186 proofs
+	// (not from the union of per-transaction prestate snapshots).
+	AuthenticatedInitialState bool `json:"authenticated_initial_state"`
+	Lean                      bool `json:"lean,omitempty"`
 }
-
-type chainContext struct {
-	header *types.Header
-	config *params.ChainConfig
-}
-
-func (c chainContext) Engine() consensus.Engine { return nil }
-
-func (c chainContext) CurrentHeader() *types.Header { return c.header }
-
-func (c chainContext) GetHeader(_ common.Hash, number uint64) *types.Header {
-	if c.header != nil && c.header.Number.Uint64() == number {
-		return c.header
-	}
-	return nil
-}
-
-func (c chainContext) GetHeaderByHash(hash common.Hash) *types.Header {
-	if c.header != nil && c.header.Hash() == hash {
-		return c.header
-	}
-	return nil
-}
-
-func (c chainContext) GetHeaderByNumber(number uint64) *types.Header {
-	return c.GetHeader(common.Hash{}, number)
-}
-
-func (c chainContext) Config() *params.ChainConfig { return c.config }
 
 func readJSON(path string, out any) error {
 	b, err := os.ReadFile(path)
@@ -686,13 +664,29 @@ func main() {
 		}
 		for address, exists := range existence {
 			a := merged[address]
+			if !exists {
+				// The proof's non-existence is authoritative.
+				a = account{}
+			}
 			a.Exists = &exists
 			merged[address] = a
 		}
 	}
-	st, err := makeState(merged)
-	if err != nil {
-		panic(err)
+	var st *state.StateDB
+	authenticatedState := false
+	if *proofPath != "" {
+		var chainCtx chainContext
+		st, chainCtx, err = buildAuthenticatedState(*context, *proofPath, merged, txs, &header, chainConfig)
+		if err != nil {
+			panic("authenticated initial state: " + err.Error())
+		}
+		replayChain = &chainCtx
+		authenticatedState = true
+	} else {
+		st, err = makeState(merged)
+		if err != nil {
+			panic(err)
+		}
 	}
 	gasPool := core.NewGasPool(header.GasLimit)
 
@@ -706,6 +700,10 @@ func main() {
 		"difficulty": header.Difficulty.String(), "base_fee_nil": header.BaseFee == nil,
 	}, AllGasMatch: true, AllStatus: true, TargetIndex: *targetIndex,
 		Note: "One shared StateDB; initial values are the union of transaction-relevant prestate snapshots. Global state root is out of scope; local prestate Merkle proofs are the authenticity gate."}
+	resultOutput.AuthenticatedInitialState = authenticatedState
+	if authenticatedState {
+		resultOutput.Note = "One shared StateDB seeded from the proof-bound initial state at the parent state root, with ancestor headers and pre-execution applied (as in the main runner)."
+	}
 	resultOutput.Mutation = *targetData != "" || len(targetCode) > 0 || len(targetStorage) > 0
 	if resultOutput.Mutation {
 		resultOutput.MutationNote = "target override applied after prefix transactions"
@@ -905,7 +903,7 @@ func main() {
 			r.OpcodeTail = *run.opcodes
 		} else {
 			// Prefix transactions execute without tracer
-			blockContext := core.NewEVMBlockContext(&header, chainContext{header: &header, config: chainConfig}, &header.Coinbase)
+			blockContext := core.NewEVMBlockContext(&header, chainFor(&header, chainConfig), &header.Coinbase)
 			evm := vm.NewEVM(blockContext, st, chainConfig, vm.Config{})
 			receipt, _, applyErr := core.ApplyTransaction(evm, gasPool, st, &header, &tx)
 			if applyErr != nil {
@@ -951,9 +949,9 @@ func main() {
 	}
 	// Global state root is out of scope for a transaction-relevant snapshot.
 	resultOutput.Acceptance = resultOutput.AllGasMatch && resultOutput.AllStatus && resultOutput.PrestateProofVerified && len(resultOutput.Results) == len(txs)
-	resultOutput.ReplayGate = resultOutput.Acceptance
+	resultOutput.ReplayGate = resultOutput.Acceptance && resultOutput.AuthenticatedInitialState
 	if resultOutput.BaselineTargetMatch != nil {
-		resultOutput.ReplayGate = resultOutput.PrestateProofVerified && resultOutput.PrefixGasMatch &&
+		resultOutput.ReplayGate = resultOutput.PrestateProofVerified && resultOutput.AuthenticatedInitialState && resultOutput.PrefixGasMatch &&
 			*resultOutput.BaselineTargetMatch && len(resultOutput.Results) == len(txs)
 	}
 	resultOutput.Lean = *lean

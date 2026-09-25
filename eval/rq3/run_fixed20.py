@@ -43,6 +43,12 @@ def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def sha256_text(path: Path) -> str:
+    """SHA-256 of a text file with CRLF normalised to LF, so the hash of a
+    committed JSON file is the same on Windows and Linux checkouts."""
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
 def wilson(k: int, n: int, z: float = 1.96) -> list[float] | None:
     """Wilson score interval for k successes out of n (95% by default)."""
     if n <= 0:
@@ -229,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     args.out.mkdir(parents=True, exist_ok=True)
-    manifest_sha = sha256_file(args.manifest)
+    manifest_sha = sha256_text(args.manifest)
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     cases = manifest["cases"]
     if args.only:
@@ -244,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
     lock = {"manifest": args.manifest.name, "manifest_sha256": manifest_sha, "n_cases": len(cases),
             "exe_sha256": sha256_file(Path(args.exe)), "thresholds": thresholds,
             "factors": args.factors.name if args.factors else None,
-            "factors_sha256": sha256_file(args.factors) if args.factors else None,
+            "factors_sha256": sha256_text(args.factors) if args.factors else None,
             "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     (args.out / "manifest_lock.json").write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
 

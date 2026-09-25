@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from eval.rq3.run_fixed20 import (DEFAULT_CONTEXTS, DEFAULT_MANIFEST, ROOT, build_args, check_context,
-                                  sha256_file)
+                                  sha256_file, sha256_text)
 
 DEFAULT_FACTORS = ROOT / "eval" / "rq3" / "fixed20_factors.json"
 RULE = ("read sites (target, selector) called by V inside the harm frame whose value at harm-frame entry "
@@ -97,11 +97,11 @@ def main(argv: list[str] | None = None) -> int:
         cases[name] = factor_from_discovery(json.loads(out.read_text(encoding="utf-8")))
 
     doc = {"schema": 1, "rule": RULE, "manifest": args.manifest.name,
-           "manifest_sha256": sha256_file(args.manifest), "exe_sha256": sha256_file(Path(args.exe)),
+           "manifest_sha256": sha256_text(args.manifest), "exe_sha256": sha256_file(Path(args.exe)),
            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "cases": cases}
-    args.factors.write_text(json.dumps(doc, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    args.factors.write_bytes((json.dumps(doc, indent=2, sort_keys=False) + "\n").encode("utf-8"))
     with_factor = sum(1 for c in cases.values() if c["sites"])
-    print(f"factors written: {args.factors}  sha256 {sha256_file(args.factors)}")
+    print(f"factors written: {args.factors}  sha256 {sha256_text(args.factors)}")
     print(f"{'case':34} {'frame':>5} {'reads':>6} {'changed':>7} {'sites':>5}  reason")
     for name, c in cases.items():
         print(f"{name.replace('defihacklabs-', '')[:34]:34} {str(c['harm_frame']):>5} {c['n_reads']:>6} "

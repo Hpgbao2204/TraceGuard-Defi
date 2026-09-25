@@ -215,7 +215,7 @@ func (m *scopingManager) evaluateCallOnS0(from, to common.Address, input []byte,
 		return nil, fmt.Errorf("S0 state is nil")
 	}
 	evalState := m.s0State.Copy()
-	blockContext := core.NewEVMBlockContext(m.header, chainContext{header: m.header, config: m.chainConfig}, &m.header.Coinbase)
+	blockContext := core.NewEVMBlockContext(m.header, chainFor(m.header, m.chainConfig), &m.header.Coinbase)
 	evalEVM := vm.NewEVM(blockContext, evalState, m.chainConfig, vm.Config{})
 	if gas == 0 || gas > 5_000_000 {
 		gas = 5_000_000
@@ -276,7 +276,7 @@ func (m *scopingManager) discover(depth int, from, to common.Address, selector s
 // evaluateObserved runs the read on a copy of the current state, which is what
 // the real call would return at this point.
 func (m *scopingManager) evaluateObserved(from, to common.Address, input []byte, gas uint64, st *state.StateDB) ([]byte, error) {
-	blockContext := core.NewEVMBlockContext(m.header, chainContext{header: m.header, config: m.chainConfig}, &m.header.Coinbase)
+	blockContext := core.NewEVMBlockContext(m.header, chainFor(m.header, m.chainConfig), &m.header.Coinbase)
 	evalEVM := vm.NewEVM(blockContext, st.Copy(), m.chainConfig, vm.Config{})
 	if gas == 0 || gas > 5_000_000 {
 		gas = 5_000_000
