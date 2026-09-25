@@ -9,10 +9,10 @@ read-site-scoped interventions, revert-origin attribution and frame-local counte
 - `paper/` — manuscript; local-only (git-ignored) while under double-blind review.
 - `core/` — Stage 1 views/fusion/screener, trace parsing, legacy Anvil fork/mutation harness, harm accounting.
 - `tools/geth-replay/` — Go replay engine (EIP-1186 proof verification, scoping, revert classifier,
-  frame recorder). `cmd/framelocal/` is the current frame-local runner. Build: `cd tools/geth-replay && go build ./...`.
+  frame recorder). `cmd/framelocal/` is the current frame-local runner. Build: `cd tools/geth-replay && go build -mod=vendor ./...`.
   `vendor/` holds a PATCHED go-ethereum v1.17.5 (adds `vm.CallIntervention` in `core/vm/evm.go` and
   `core/vm/instructions.go`). Always build in vendor mode; never run `go mod vendor`/`go get` over it, or the patch is lost.
-- `tools/geth-replay-framelocal/` — older frame-local port kept for comparison.
+- `tools/geth-replay-framelocal/` — legacy frame-local port kept for comparison; not used for RQ3.
 - `eval/` — experiments: `e1_*` (Stage 1, RQ1–RQ4), `m4_independent/` (RQ5 fidelity vs Nethermind),
   `e4/` and `e5/` (Stage 2 attribution; `e5/` holds many per-case exploratory probes).
 - `corpus/` — incident loaders and labeling scripts. `tests/`, `eval/tests/` — pytest suites.
@@ -37,7 +37,11 @@ python -m eval.e1_cli --steps train report       # Stage 1 from trace cache, ~2 
 
 - `tools/geth-replay/scoping.go` treats `balanceOf(address)` as a price selector; most scoped reads in the
   fixed-20 runs are `balanceOf`, not oracle/AMM reads.
-- Frame-local mode replays the whole transaction from the start and cancels at target-frame exit; attacker calldata
-  to the victim is not checked against baseline. Isolation/sham controls are close to tautological as written.
+- Frame-local mode replays the whole transaction from the start and cancels at target-frame exit. In
+  `cmd/framelocal` the intervention applies only while the harm frame runs, attacker calldata/value/caller into
+  the victim (target entry and nested entries) is checked against baseline, isolation uses identity stubs at the
+  same read sites and compares log digests, and sham perturbs an unrelated (non-victim) price read. Only
+  `cmd/framelocal` is used for RQ3 (`eval/rq3/run_fixed20.py`); the top-level `framelocal.go` and
+  `tools/geth-replay-framelocal/` are legacy.
 - `eval/results/e4_fixed20_smallproject/e4_rq6_evaluation.json` numbers do not reconcile with the run artifacts;
   do not cite them.

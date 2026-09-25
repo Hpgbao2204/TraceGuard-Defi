@@ -226,8 +226,21 @@ func newInstrumentedHooks(
 	logs := make([]*types.Log, 0)
 	opcodes := make([]opcodeEvent, 0)
 
+	// One clock shared by all components, ticked once per enter and exit.
+	clock := &eventClock{}
+	if scopingMgr != nil {
+		scopingMgr.clock = clock
+	}
+	if frameRec != nil {
+		frameRec.clock = clock
+	}
+	if revertClf != nil {
+		revertClf.clock = clock
+	}
+
 	hooks := &tracing.Hooks{
 		OnEnter: func(depth int, typ byte, from common.Address, to common.Address, input []byte, gas uint64, value *big.Int) {
+			clock.tick()
 			frames = append(frames, callFrame{
 				Event: "enter", Depth: depth,
 				Type: vm.OpCode(typ).String(), From: from.Hex(), To: to.Hex(),
@@ -248,6 +261,7 @@ func newInstrumentedHooks(
 			}
 		},
 		OnExit: func(depth int, output []byte, gasUsed uint64, err error, reverted bool) {
+			clock.tick()
 			frame := callFrame{Event: "exit", Depth: depth, GasUsed: gasUsed, Reverted: reverted}
 			if err != nil {
 				frame.Error = err.Error()
@@ -293,6 +307,81 @@ func newInstrumentedHooks(
 	return hooks, &frames, &revertData, &balanceChanges, &logs, &opcodes
 }
 
+// targetRun is one traced execution of the target transaction.
+type targetRun struct {
+	recorder       *frameRecorder
+	receipt        *types.Receipt
+	err            error
+	frames         *[]callFrame
+	revertData     *string
+	balanceChanges *[]balanceChange
+	logs           *[]*types.Log
+	opcodes        *[]opcodeEvent
+}
+
+func applyTarget(
+	st *state.StateDB,
+	header *types.Header,
+	chainConfig *params.ChainConfig,
+	gasPool *core.GasPool,
+	tx *types.Transaction,
+	scopingMgr *scopingManager,
+	rec *frameRecorder,
+	revertClf *revertClassifier,
+	onEVM func(*vm.EVM),
+) *targetRun {
+	hooks, frames, revertData, balanceChanges, logs, opcodes := newInstrumentedHooks(st, scopingMgr, rec, revertClf)
+	blockContext := core.NewEVMBlockContext(header, chainContext{header: header, config: chainConfig}, &header.Coinbase)
+	evm := vm.NewEVM(blockContext, st, chainConfig, vm.Config{Tracer: hooks})
+	if onEVM != nil {
+		onEVM(evm)
+	}
+	receipt, _, err := core.ApplyTransaction(evm, gasPool, st, header, tx)
+	return &targetRun{recorder: rec, receipt: receipt, err: err, frames: frames, revertData: revertData,
+		balanceChanges: balanceChanges, logs: logs, opcodes: opcodes}
+}
+
+func applyTargetOverrides(st *state.StateDB, targetCode, targetStorage []string) {
+	for _, item := range targetCode {
+		address, code, parseErr := parseOverride(item)
+		if parseErr != nil {
+			panic(parseErr)
+		}
+		decoded, decodeErr := hexutil.Decode(code)
+		if decodeErr != nil {
+			panic(decodeErr)
+		}
+		st.SetCode(address, decoded, tracing.CodeChangeUnspecified)
+	}
+	for _, item := range targetStorage {
+		parts := strings.SplitN(item, "=", 2)
+		if len(parts) != 2 {
+			panic("target-storage must be address:slot=value")
+		}
+		left := strings.SplitN(parts[0], ":", 2)
+		if len(left) != 2 {
+			panic("target-storage must be address:slot=value")
+		}
+		st.SetState(common.HexToAddress(left[0]), common.HexToHash(left[1]), common.HexToHash(parts[1]))
+	}
+}
+
+// makeLean drops the per-call trace, logs, balance changes and opcode tail,
+// which dominate output size; verdicts, entry-frame losses and scoped reads stay.
+func makeLean(out *output) {
+	for i := range out.Results {
+		out.Results[i].CallTrace = nil
+		out.Results[i].Logs = nil
+		out.Results[i].BalanceChanges = nil
+		out.Results[i].OpcodeTail = nil
+	}
+	for i := range out.EntryFrames {
+		out.EntryFrames[i].Logs = nil
+		out.EntryFrames[i].BalanceChanges = nil
+		out.EntryFrames[i].AttackerCallbacks = nil
+	}
+}
+
 type stringListFlag []string
 
 func (f *stringListFlag) String() string { return strings.Join(*f, ",") }
@@ -327,6 +416,15 @@ type output struct {
 	RevertOrigin          *revertOriginResult        `json:"revert_origin,omitempty"`
 	ScopedReads           []scopedReadRecord         `json:"scoped_reads,omitempty"`
 	FrameLocalResult      *frameLocalExecutionResult `json:"frame_local_result,omitempty"`
+	WholeTxResult         *frameLocalExecutionResult `json:"whole_tx_result,omitempty"`
+	// BaselineTargetMatch: the unmodified target replay (pass 1) matched the
+	// receipt's gas and status. In frame-local modes the counterfactual pass
+	// is cancelled at the harm-frame exit, so its receipt cannot be compared.
+	BaselineTargetMatch *bool `json:"baseline_target_match,omitempty"`
+	// ReplayGate: authenticated prestate, exact prefix, and exact baseline
+	// target. Verdicts are only admissible when it holds.
+	ReplayGate bool `json:"replay_gate"`
+	Lean       bool `json:"lean,omitempty"`
 }
 
 type chainContext struct {
@@ -458,10 +556,14 @@ func main() {
 	targetData := flag.String("target-data", "", "replacement calldata for target legacy tx")
 	mode := flag.String("mode", "whole-tx", "execution mode: whole-tx, record, frame-local, isolation, sham")
 	scopedPrice := flag.Bool("scoped-price", false, "enable read-site scoping for price sources (f_price)")
-	frameIndex := flag.Int("frame-index", 0, "target entry frame index for frame-local mode")
+	frameIndex := flag.Int("frame-index", -1, "target entry frame index for frame-local modes; -1 picks the harm frame with the largest per-token loss share")
 	doseLambda := flag.Float64("dose-lambda", -1.0, "dose-response lambda parameter in [0.0, 1.0]")
 	priceValue := flag.String("price-value", "", "explicit replacement return value for scoped reads (hex)")
 	priceIdentity := flag.Bool("price-identity", false, "return the first ABI argument for one-argument conversion reads")
+	lean := flag.Bool("lean", false, "omit call trace, logs, balance changes and opcode tail from the output; do not echo JSON to stdout")
+	lossMinFrac := flag.Float64("loss-min-frac", defaultThresholds.LossMinFrac, "L_min as a fraction of the baseline loss of the same token (CAUSE when L' <= L_min)")
+	rho := flag.Float64("rho", defaultThresholds.Rho, "PARTIAL when L_min < L' <= (1-rho)L")
+	shamScale := flag.Float64("sham-scale", 0.5, "sham mode: multiply each 32-byte word of the unrelated read by this factor")
 	var victims stringListFlag
 	var scopeCallers stringListFlag
 	var attackers stringListFlag
@@ -475,6 +577,10 @@ func main() {
 	flag.Var(&targetCode, "target-code", "address=runtime-bytecode override (repeatable)")
 	flag.Var(&targetStorage, "target-storage", "address:slot=value override (repeatable)")
 	flag.Parse()
+	thresholds := verdictThresholds{LossMinFrac: *lossMinFrac, Rho: *rho}
+	if *lossMinFrac < 0 || *lossMinFrac >= 1-*rho || *rho <= 0 || *rho >= 1 {
+		panic("thresholds need 0 <= loss-min-frac < 1-rho and 0 < rho < 1")
+	}
 	chainProfile, err := profileForChainID(*chainID)
 	if err != nil {
 		panic(err)
@@ -626,80 +732,44 @@ func main() {
 			if *doseLambda >= 0.0 && *doseLambda <= 1.0 {
 				lambdaPtr = doseLambda
 			}
+			var replacement []byte
+			if *priceValue != "" {
+				decoded, decodeErr := hexutil.Decode(*priceValue)
+				if decodeErr != nil {
+					panic(decodeErr)
+				}
+				replacement = decoded
+			}
 
-			if *mode == "frame-local" || *mode == "isolation" || *mode == "sham" {
-				// Pass 1: Baseline run to capture baseline entry frames
+			frameMode := *mode == "frame-local" || *mode == "isolation" || *mode == "sham"
+			wholeTxVerdict := *mode == "whole-tx" && *scopedPrice
+
+			// Pass 1: unmodified baseline on a copy of S0, for every mode that
+			// compares against it.
+			var base *targetRun
+			if frameMode || wholeTxVerdict {
 				baseState := s0Snapshot.Copy()
-				baseConfig := vm.Config{}
-				baseRecorder := newFrameRecorder(baseState, victims, attackers, false, -1, nil)
-				baseHooks, _, _, _, _, _ := newInstrumentedHooks(baseState, nil, baseRecorder, nil)
-				baseConfig.Tracer = baseHooks
-				baseBlockCtx := core.NewEVMBlockContext(&header, chainContext{header: &header, config: chainConfig}, &header.Coinbase)
-				baseEVM := vm.NewEVM(baseBlockCtx, baseState, chainConfig, baseConfig)
-				baseGasPool := core.NewGasPool(header.GasLimit)
-				core.ApplyTransaction(baseEVM, baseGasPool, baseState, &header, &tx)
+				baseRec := newFrameRecorder(baseState, victims, attackers, false, -1, nil)
+				base = applyTarget(baseState, &header, chainConfig, core.NewGasPool(header.GasLimit), &tx, nil, baseRec, nil, nil)
+				match := base.err == nil && base.receipt != nil && base.receipt.GasUsed == r.ExpectedGas &&
+					(base.receipt.Status == types.ReceiptStatusSuccessful) == r.ExpectedOK
+				resultOutput.BaselineTargetMatch = &match
+			}
 
-				resultOutput.EntryFrames = baseRecorder.entryFrames
+			// Pass 2: counterfactual on the shared state.
+			targetPrefixLogCount = len(st.Logs())
+			applyTargetOverrides(st, targetCode, targetStorage)
 
+			var run *targetRun
+			if frameMode {
+				resultOutput.EntryFrames = base.recorder.entryFrames
 				targetIdx := *frameIndex
 				if targetIdx < 0 {
-					bestFrameIdx := -1
-					var maxLoss *big.Int = big.NewInt(0)
-					for i, fr := range baseRecorder.entryFrames {
-						if fr.IsHarmFrame {
-							loss := sumPositiveDeltas(fr.AssetDeltas)
-							if loss.Cmp(maxLoss) > 0 {
-								maxLoss = loss
-								bestFrameIdx = i
-							}
-						}
-					}
-					if bestFrameIdx >= 0 {
-						targetIdx = bestFrameIdx
-					} else {
-						targetIdx = 0
-					}
+					targetIdx = selectHarmFrame(base.recorder.entryFrames)
 				}
-
-				var baselineTargetFrame *victimEntryFrame
-				if targetIdx >= 0 && targetIdx < len(baseRecorder.entryFrames) {
-					baselineTargetFrame = &baseRecorder.entryFrames[targetIdx]
-				}
-
-				// Pass 2: Counterfactual run with frame-local abort
-				targetPrefixLogCount = len(st.Logs())
-				for _, item := range targetCode {
-					address, code, parseErr := parseOverride(item)
-					if parseErr != nil {
-						panic(parseErr)
-					}
-					decoded, decodeErr := hexutil.Decode(code)
-					if decodeErr != nil {
-						panic(decodeErr)
-					}
-					st.SetCode(address, decoded, tracing.CodeChangeUnspecified)
-				}
-				for _, item := range targetStorage {
-					parts := strings.SplitN(item, "=", 2)
-					if len(parts) != 2 {
-						panic("target-storage must be address:slot=value")
-					}
-					left := strings.SplitN(parts[0], ":", 2)
-					if len(left) != 2 {
-						panic("target-storage must be address:slot=value")
-					}
-					st.SetState(common.HexToAddress(left[0]), common.HexToHash(left[1]), common.HexToHash(parts[1]))
-				}
-
-				enableScoping := *scopedPrice || *mode == "frame-local" || *mode == "sham"
-				isSham := *mode == "sham"
-				var replacement []byte
-				if *priceValue != "" {
-					decoded, decodeErr := hexutil.Decode(*priceValue)
-					if decodeErr != nil { panic(decodeErr) }
-					replacement = decoded
-				}
-				scopingMgr := newScopingManager(enableScoping, victims, priceSources, scopeCallers, s0Snapshot, &header, chainConfig, lambdaPtr, isSham, replacement, *priceIdentity)
+				valueMode := map[string]string{"frame-local": valueNeutral, "isolation": valueObserved, "sham": valueSham}[*mode]
+				scopingMgr := newScopingManager(true, victims, priceSources, scopeCallers, s0Snapshot, &header, chainConfig, lambdaPtr, valueMode, replacement, *priceIdentity)
+				scopingMgr.shamScale = *shamScale
 
 				var cfEVM *vm.EVM
 				cfCancel := func() {
@@ -708,145 +778,108 @@ func main() {
 					}
 				}
 				cfRecorder := newFrameRecorder(st, victims, attackers, true, targetIdx, cfCancel)
+				// Frame-local: intervene only while the harm frame runs, so the
+				// prefix of the transaction replays exactly as in the baseline.
+				scopingMgr.inScope = cfRecorder.targetActive
 				cfRevertClf := newRevertClassifier(victims, attackers, nil)
-
-				cfConfig := vm.Config{}
-				cfHooks, frames, revertData, balanceChanges, logs, opcodes := newInstrumentedHooks(st, scopingMgr, cfRecorder, cfRevertClf)
-				cfConfig.Tracer = cfHooks
-
-				blockContext := core.NewEVMBlockContext(&header, chainContext{header: &header, config: chainConfig}, &header.Coinbase)
-				cfEVM = vm.NewEVM(blockContext, st, chainConfig, cfConfig)
-				receipt, _, applyErr := core.ApplyTransaction(cfEVM, gasPool, st, &header, &tx)
-				if applyErr != nil {
-					runErr = applyErr
-				} else if receipt != nil {
-					r.ActualGas = receipt.GasUsed
-					r.ActualOK = receipt.Status == types.ReceiptStatusSuccessful
-				}
-				if frames != nil {
-					r.CallTrace = *frames
-				}
-				if revertData != nil {
-					r.RevertData = *revertData
-				}
-				if balanceChanges != nil {
-					r.BalanceChanges = *balanceChanges
-				}
-				if logs != nil {
-					r.Logs = *logs
-				}
-				if opcodes != nil {
-					r.OpcodeTail = *opcodes
-				}
+				run = applyTarget(st, &header, chainConfig, gasPool, &tx, scopingMgr, cfRecorder, cfRevertClf, func(e *vm.EVM) { cfEVM = e })
 
 				consumed := len(scopingMgr.records) > 0
 				// A runtime-code intervention is consumed when the overridden
-				// address is actually entered in the replayed call tree. Read-site
-				// scoping is not the only valid intervention kind.
-				if !consumed && len(targetCode) > 0 && frames != nil {
+				// address is actually entered in the replayed call tree.
+				if !consumed && len(targetCode) > 0 {
 					for _, item := range targetCode {
 						address, _, parseErr := parseOverride(item)
 						if parseErr != nil {
 							continue
 						}
-						for _, frame := range *frames {
+						for _, frame := range *run.frames {
 							if frame.Event == "enter" && strings.EqualFold(frame.To, address.Hex()) {
 								consumed = true
-								break
 							}
 						}
-						if consumed {
-							break
-						}
 					}
 				}
-				verdict := computeFrameLocalVerdict(baselineTargetFrame, cfRecorder.frameLocalResult, consumed, *mode)
+				var verdict frameLocalExecutionResult
+				if targetIdx < 0 || targetIdx >= len(base.recorder.entryFrames) {
+					verdict = inconclusive(frameLocalExecutionResult{Mode: *mode, TargetFrameIndex: targetIdx, Thresholds: thresholds},
+						"no_harm_frame", "baseline has no victim harm frame to target")
+				} else {
+					in := verdictInput{
+						Mode:       *mode,
+						Baseline:   &base.recorder.entryFrames[targetIdx],
+						CF:         cfRecorder.frameLocalResult,
+						Consumed:   consumed,
+						Sites:      len(scopingMgr.records),
+						Thresholds: thresholds,
+					}
+					if in.CF != nil {
+						check := checkAttackerInputs(base.recorder.entryFrames, targetIdx, cfRecorder.entryFrames, targetIdx, func(addr string) bool { return cfRecorder.isAttacker(common.HexToAddress(addr)) })
+						in.Input = &check
+						cfRevertClf.scopedReads = scopingMgr.records
+						ro := cfRevertClf.classifyFrame(in.CF.EnterSeq)
+						in.Revert = &ro
+						resultOutput.RevertOrigin = &ro
+					}
+					verdict = computeFrameLocalVerdict(in)
+				}
 				resultOutput.FrameLocalResult = &verdict
 				resultOutput.ScopedReads = scopingMgr.records
-				cfRevertClf.scopedReads = scopingMgr.records
-				revertRes := cfRevertClf.classify(runErr != nil || !r.ActualOK, r.Error)
-				resultOutput.RevertOrigin = &revertRes
 			} else {
 				// Mode "whole-tx" or "record"
-				targetPrefixLogCount = len(st.Logs())
-				for _, item := range targetCode {
-					address, code, parseErr := parseOverride(item)
-					if parseErr != nil {
-						panic(parseErr)
-					}
-					decoded, decodeErr := hexutil.Decode(code)
-					if decodeErr != nil {
-						panic(decodeErr)
-					}
-					st.SetCode(address, decoded, tracing.CodeChangeUnspecified)
-				}
-				for _, item := range targetStorage {
-					parts := strings.SplitN(item, "=", 2)
-					if len(parts) != 2 {
-						panic("target-storage must be address:slot=value")
-					}
-					left := strings.SplitN(parts[0], ":", 2)
-					if len(left) != 2 {
-						panic("target-storage must be address:slot=value")
-					}
-					st.SetState(common.HexToAddress(left[0]), common.HexToHash(left[1]), common.HexToHash(parts[1]))
-				}
-
-				var replacement []byte
-				if *priceValue != "" {
-					decoded, decodeErr := hexutil.Decode(*priceValue)
-					if decodeErr != nil { panic(decodeErr) }
-					replacement = decoded
-				}
-				scopingMgr := newScopingManager(*scopedPrice, victims, priceSources, scopeCallers, s0Snapshot, &header, chainConfig, lambdaPtr, false, replacement, *priceIdentity)
+				scopingMgr := newScopingManager(*scopedPrice, victims, priceSources, scopeCallers, s0Snapshot, &header, chainConfig, lambdaPtr, valueNeutral, replacement, *priceIdentity)
 				frameRec := newFrameRecorder(st, victims, attackers, false, -1, nil)
 				revertClf := newRevertClassifier(victims, attackers, nil)
-
-				config := vm.Config{}
-				var frames *[]callFrame
-				var revertData *string
-				var balanceChanges *[]balanceChange
-				var logs *[]*types.Log
-				var opcodes *[]opcodeEvent
-
-				var hooks *tracing.Hooks
-				hooks, frames, revertData, balanceChanges, logs, opcodes = newInstrumentedHooks(st, scopingMgr, frameRec, revertClf)
-				config.Tracer = hooks
-
-				blockContext := core.NewEVMBlockContext(&header, chainContext{header: &header, config: chainConfig}, &header.Coinbase)
-				evm := vm.NewEVM(blockContext, st, chainConfig, config)
-				receipt, _, applyErr := core.ApplyTransaction(evm, gasPool, st, &header, &tx)
-				if applyErr != nil {
-					runErr = applyErr
-				} else {
-					r.ActualGas = receipt.GasUsed
-					r.ActualOK = receipt.Status == types.ReceiptStatusSuccessful
-				}
-				if frames != nil {
-					r.CallTrace = *frames
-				}
-				if revertData != nil {
-					r.RevertData = *revertData
-				}
-				if balanceChanges != nil {
-					r.BalanceChanges = *balanceChanges
-				}
-				if logs != nil {
-					r.Logs = *logs
-				}
-				if receipt != nil && targetPrefixLogCount >= 0 {
-					r.Logs = targetLogs(st.Logs(), targetPrefixLogCount)
-				}
-				if opcodes != nil {
-					r.OpcodeTail = *opcodes
-				}
+				run = applyTarget(st, &header, chainConfig, gasPool, &tx, scopingMgr, frameRec, revertClf, nil)
 
 				resultOutput.EntryFrames = frameRec.entryFrames
 				resultOutput.ScopedReads = scopingMgr.records
 				revertClf.scopedReads = scopingMgr.records
-				revertRes := revertClf.classify(runErr != nil || !r.ActualOK, r.Error)
+				cfFailed := run.err != nil || run.receipt == nil || run.receipt.Status != types.ReceiptStatusSuccessful
+				errText := ""
+				if run.err != nil {
+					errText = run.err.Error()
+				}
+				revertRes := revertClf.classify(cfFailed, errText)
 				resultOutput.RevertOrigin = &revertRes
+				if wholeTxVerdict {
+					baseOK := base.err == nil && base.receipt != nil && base.receipt.Status == types.ReceiptStatusSuccessful
+					var baseGas, cfGas uint64
+					if base.receipt != nil {
+						baseGas = base.receipt.GasUsed
+					}
+					if run.receipt != nil {
+						cfGas = run.receipt.GasUsed
+					}
+					verdict := computeFrameLocalVerdict(verdictInput{
+						Mode:       "whole-tx",
+						Baseline:   &victimEntryFrame{FrameIndex: -1, Status: baseOK, Reverted: !baseOK, GasUsed: baseGas},
+						CF:         &victimEntryFrame{FrameIndex: -1, Status: !cfFailed, Reverted: cfFailed, GasUsed: cfGas, Error: errText},
+						BaseLoss:   sumLossTopLevel(base.recorder.entryFrames),
+						CFLoss:     sumLossTopLevel(frameRec.entryFrames),
+						Consumed:   len(scopingMgr.records) > 0,
+						Sites:      len(scopingMgr.records),
+						Revert:     &revertRes,
+						Thresholds: thresholds,
+					})
+					resultOutput.WholeTxResult = &verdict
+				}
 			}
+
+			if run.err != nil {
+				runErr = run.err
+			} else if run.receipt != nil {
+				r.ActualGas = run.receipt.GasUsed
+				r.ActualOK = run.receipt.Status == types.ReceiptStatusSuccessful
+			}
+			r.CallTrace = *run.frames
+			r.RevertData = *run.revertData
+			r.BalanceChanges = *run.balanceChanges
+			r.Logs = *run.logs
+			if !frameMode && run.receipt != nil && targetPrefixLogCount >= 0 {
+				r.Logs = targetLogs(st.Logs(), targetPrefixLogCount)
+			}
+			r.OpcodeTail = *run.opcodes
 		} else {
 			// Prefix transactions execute without tracer
 			blockContext := core.NewEVMBlockContext(&header, chainContext{header: &header, config: chainConfig}, &header.Coinbase)
@@ -895,9 +928,20 @@ func main() {
 	}
 	// Global state root is out of scope for a transaction-relevant snapshot.
 	resultOutput.Acceptance = resultOutput.AllGasMatch && resultOutput.AllStatus && resultOutput.PrestateProofVerified && len(resultOutput.Results) == len(txs)
+	resultOutput.ReplayGate = resultOutput.Acceptance
+	if resultOutput.BaselineTargetMatch != nil {
+		resultOutput.ReplayGate = resultOutput.PrestateProofVerified && resultOutput.PrefixGasMatch &&
+			*resultOutput.BaselineTargetMatch && len(resultOutput.Results) == len(txs)
+	}
+	resultOutput.Lean = *lean
+	if *lean {
+		makeLean(&resultOutput)
+	}
 	b, _ := json.MarshalIndent(resultOutput, "", "  ")
 	if err := os.WriteFile(*outputPath, append(b, '\n'), 0644); err != nil {
 		panic(err)
 	}
-	fmt.Println(string(b))
+	if !*lean {
+		fmt.Println(string(b))
+	}
 }
