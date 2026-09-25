@@ -108,12 +108,13 @@ def cumulative_panel(out: Path, runs: list[dict], what: str, fname: str, ylabel:
             groups[-1][1].append(label)
         else:
             groups.append([y, [label]])
-    last = -1e9
+    last_top = -1e9
+    line_h = 0.065 * top
     for y, labels in groups:  # direct labels at the right end, nudged upward only when they collide
-        y = max(y, last + 0.075 * top)
-        last = y
-        ax.text(x[-1] * 1.02, y, "
-".join(labels), fontsize=6.5, color=INK, va="center", ha="left",
+        half = len(labels) * line_h / 2
+        y = max(y, last_top + half)
+        last_top = y + half
+        ax.text(x[-1] * 1.02, y, "\n".join(labels), fontsize=6.5, color=INK, va="center", ha="left",
                 linespacing=1.0)
     ax.set_xlim(0, x[-1])
     ax.set_ylim(0, top * 1.08)
