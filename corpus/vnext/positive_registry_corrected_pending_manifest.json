@@ -1,0 +1,24 @@
+{
+  "corrections": {
+    "defihacklabs-h2o-2025-03-14": {
+      "status": "PENDING_CANONICAL_REVIEW",
+      "tx_hashes": []
+    },
+    "defihacklabs-olpc-2026-06-20": {
+      "status": "PENDING_CANONICAL_REVIEW",
+      "tx_hashes": []
+    },
+    "defihacklabs-unprotectedarbbot-2026-07-30": {
+      "chain": "base",
+      "status": "CHAIN_METADATA_CORRECTED_PENDING_P2_P3",
+      "tx_hashes": [
+        "0xe831f3991132cbaffbb4a3738da7d1e254a6c02f0adce605a333229a61e27ad7"
+      ]
+    }
+  },
+  "output_sha256": "8499b6f45b8743f74e9d7d2adc1aabe50e931e574c8552a7d3ee28840f64214c",
+  "policy": "Candidate correction only; official frozen registry is not overwritten.",
+  "schema_version": 1,
+  "source_sha256": "b5dec15c778fda4e466a4f6723f1b18ff1e3e1da17a2645c41c362ea17904029",
+  "status": "PENDING_REVIEW"
+}

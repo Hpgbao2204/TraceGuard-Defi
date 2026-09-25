@@ -1,0 +1,46 @@
+name: CI
+
+# Manual only: most tests need local datasets that are not in the repository.
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit test suite
+        run: |
+          python -m pytest tests/ -v
+
+      - name: Build and install wheel
+        run: |
+          python -m pip install build
+          python -m build --wheel --outdir /tmp/trafisec-wheel
+          python -m pip install --force-reinstall /tmp/trafisec-wheel/*.whl
+          python -c "import core, eval"
+
+      - name: Validate B2 Go runner
+        working-directory: tools/geth-replay
+        run: |
+          go test ./...
+          go build ./...

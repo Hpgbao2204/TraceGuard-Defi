@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
+.venv/
+venv/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# OS / IDE
+.DS_Store
+__MACOSX/
+.idea/
+.vscode/
+*.swp
+
+# Go replay binary and vendored modules (rebuild with `go build`)
+tools/geth-replay/geth-replay
+tools/geth-replay/geth-replay.exe
+tools/geth-replay/vendor/
+
+# Unpacked replay contexts (source of truth is data/b2-contexts/*.tar.gz)
+eval/results/m4/b2-contexts-fresh/
+
+# Heavy runtime outputs
+eval/results/runs/
+eval/results/raw_logs/
+eval/results/e1_trace_cache.jsonl
+**/b2-run-*.json
+
+# LaTeX build files
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.log
+paper/*.out
+paper/*.synctex.gz
+
+# ---- Datasets and experiment outputs: kept on the local machine, never committed ----
+data/
+eval/results/
+eval/artifacts/
+*.jsonl
+*.jsonl.gz
+*.ndjson.gz
+corpus/verified_attacks.tsv
+corpus/annotations/
+# exploratory / vnext folders: keep only code
+eval/exploratory/**
+!eval/exploratory/**/
+!eval/exploratory/**/*.py
+!eval/exploratory/**/*.sol
+eval/vnext/**
+!eval/vnext/**/
+!eval/vnext/**/*.py
+!eval/vnext/**/*.md
+
+# Local-only: manuscript under double-blind review and internal research notes
+paper/
+docs/dev-notes/

@@ -1,0 +1,16 @@
+{
+  "labels_allowed": [
+    "VERIFIED_BENIGN",
+    "KNOWN_MALICIOUS",
+    "PROTOCOL_MISUSE",
+    "WHITEHAT_RESCUE",
+    "UNCERTAIN"
+  ],
+  "model_predictions_included": false,
+  "pilot_n": 29,
+  "schema_version": 1,
+  "source_candidates_sha256": "4f6fa8174f008f8a6b9363897fc86a7f8d2f48f329cd316eacafba17646c3b7d",
+  "stage": "B3",
+  "status": "PENDING_BLIND_REVIEW",
+  "unique_transactions": 29
+}

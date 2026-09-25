@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "milestone": "M2",
+  "status": "implementation-frozen",
+  "implementation_source_commit": "4058412",
+  "evidence_source_commit": "4058412",
+  "official_operators": ["f_fl", "f_orc"],
+  "operators": {
+    "f_fl": {
+      "application_contract": "provider selector is observed and the requested provider mutation is read back",
+      "mutation_contract": "declared flash-loan entrypoint is observed and blocked; revert is not causal evidence",
+      "execution_contract": "execution preservation is reported separately from semantic validity",
+      "evidence_paths": [
+        "eval/e4/application_gate.py",
+        "eval/e4/semantic_validation.py",
+        "eval/e4/execution.py"
+      ]
+    },
+    "f_orc": {
+      "application_contract": "only the observed oracle address and selector are intercepted",
+      "mutation_contract": "exact historical reference return bytes are verified at state block b-1",
+      "execution_contract": "forwarding, revert data, and execution preservation are reported separately",
+      "evidence_paths": [
+        "eval/e4/b2_mutation.py",
+        "eval/e4/application_gate.py",
+        "eval/e4/semantic_validation.py",
+        "eval/e4/execution.py"
+      ]
+    }
+  },
+  "policy_contract": {
+    "canonical_fields": [
+      "mutation_application_verified",
+      "mutation_contract_verified",
+      "execution_preserving"
+    ],
+    "diagnostic_alias": "semantic_valid",
+    "out_of_scope_policy": "operators outside f_fl and f_orc are INCONCLUSIVE and cannot contribute causal evidence"
+  },
+  "verification": {
+    "targeted_tests": "28 passed",
+    "causal_evaluation": "not run",
+    "real_causal_verdicts": "none",
+    "note": "M2 freezes mutation application and semantic contracts; protected-harm causal validation remains a later milestone."
+  }
+}

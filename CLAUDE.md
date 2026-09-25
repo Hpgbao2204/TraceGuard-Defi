@@ -1,0 +1,41 @@
+# TraceGuard-DeFi (TraFiSec)
+
+Two-stage DeFi incident triage for an NSS 2026 submission (Springer LNCS, double-blind, 15 pages).
+Stage 1 is a calibrated three-view screener; Stage 2 is proof-authenticated go-ethereum replay with
+read-site-scoped interventions, revert-origin attribution and frame-local counterfactual replay.
+
+## Layout
+
+- `paper/` — manuscript; local-only (git-ignored) while under double-blind review.
+- `core/` — Stage 1 views/fusion/screener, trace parsing, legacy Anvil fork/mutation harness, harm accounting.
+- `tools/geth-replay/` — Go replay engine (EIP-1186 proof verification, scoping, revert classifier,
+  frame recorder). `cmd/framelocal/` is the current frame-local runner. Build: `cd tools/geth-replay && go build ./...`.
+- `tools/geth-replay-framelocal/` — older frame-local port kept for comparison.
+- `eval/` — experiments: `e1_*` (Stage 1, RQ1–RQ4), `m4_independent/` (RQ5 fidelity vs Nethermind),
+  `e4/` and `e5/` (Stage 2 attribution; `e5/` holds many per-case exploratory probes).
+- `corpus/` — incident loaders and labeling scripts. `tests/`, `eval/tests/` — pytest suites.
+- `docs/dev-notes/` — internal research notes; local-only (git-ignored).
+
+## Data is local-only
+
+Datasets, trace caches, replay contexts and experiment outputs are git-ignored (`data/`, `eval/results/`,
+`eval/artifacts/`, `*.jsonl`, `corpus/annotations/`), as are `paper/` and `docs/dev-notes/`. The repository is public:
+never commit author names, emails, local paths, RPC keys, or the manuscript. A session without the local data can edit code
+but cannot rerun experiments; tests that read `eval/results/` will fail there.
+
+## Commands (with local data present)
+
+```bash
+pip install -r requirements.txt
+python -m pytest -q                              # ~1 min; test_audits claim check fails until paper numbers are final
+python -m eval.e1_cli --steps train report       # Stage 1 from trace cache, ~2 s
+```
+
+## Known issues to keep in mind
+
+- `tools/geth-replay/scoping.go` treats `balanceOf(address)` as a price selector; most scoped reads in the
+  fixed-20 runs are `balanceOf`, not oracle/AMM reads.
+- Frame-local mode replays the whole transaction from the start and cancels at target-frame exit; attacker calldata
+  to the victim is not checked against baseline. Isolation/sham controls are close to tautological as written.
+- `eval/results/e4_fixed20_smallproject/e4_rq6_evaluation.json` numbers do not reconcile with the run artifacts;
+  do not cite them.

@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "replay_source_commit": "b512c70",
+  "closure_max_rounds": 3,
+  "canonical_cases": [
+    {
+      "tx_hash": "0x479bed067c4c8eb7a27309933a209b8930e0ac6c0dac8a4749b2386a3b778281",
+      "target_index": 0,
+      "block": 22781962,
+      "status": "ACCEPTED",
+      "reason_code": "footprint_closed",
+      "footprint_id": "b4234cd723591b64bad82835d73c9ba36e50f7b2d4130bf8937ec30008d8efd6",
+      "proof_accounts": 10,
+      "proof_storage_cells": 15,
+      "gas_actual": 153052,
+      "gas_expected": 153052,
+      "output_sha256": "316af649030098563a56849c643eac0fd311b57cee08315913bc45f85674d6bb"
+    },
+    {
+      "tx_hash": "0x17b114274d73ba6a9b27727d86c7033739aad30952b45449948d219525a9f9bc",
+      "target_index": 1,
+      "block": 22781962,
+      "status": "ACCEPTED",
+      "reason_code": "footprint_closed",
+      "footprint_id": "c4f9b2da4d9b6da80c33d67184cda8d4270930c10537f15da4504e04cac4a95e",
+      "proof_accounts": 17,
+      "proof_storage_cells": 21,
+      "gas_actual": 616908,
+      "gas_expected": 616908,
+      "output_sha256": "ead1a0e12014c21d34c9a23bcfb6cd697ef556faae2034989a9d3034aee3ba74"
+    },
+    {
+      "tx_hash": "0x1f15a193db3f44713d56c4be6679b194f78c2bcdd2ced5b0c7495b7406f5e87a",
+      "target_index": 2,
+      "block": 22781962,
+      "status": "ACCEPTED",
+      "reason_code": "footprint_closed",
+      "footprint_id": "30176d9375e2fd579343715a6cecf758bafe722d8cdd8894bdad85d2925f88a4",
+      "proof_accounts": 41,
+      "proof_storage_cells": 59,
+      "gas_actual": 990283,
+      "gas_expected": 990283,
+      "output_sha256": "e7479ca48da32591a028a85c410f993e1b8dd1852278a6c096088a59abb4acdd"
+    },
+    {
+      "tx_hash": "0xb5c8bd9430b6cc87a0e2fe110ece6bf527fa4f170a4bc8cd032f768fc5219838",
+      "target_index": 28,
+      "block": 9484688,
+      "status": "ACCEPTED",
+      "reason_code": "footprint_closed",
+      "footprint_id": "fb5cf41a82c54fb7159567965ac2a9d23f059333da571404a343710a42729486",
+      "proof_accounts": 91,
+      "proof_storage_cells": 480,
+      "gas_actual": 5377299,
+      "gas_expected": 5377299,
+      "output_sha256": "62b9693312b3a1fcc16ff0f98c962a2f614a981cf27b5347343b6e14f95556b5"
+    }
+  ],
+  "note": "Fresh frozen-validation outputs from /tmp/trafisec-m1-matrix-20260913-*. All four cases passed the current proof-bound M1 gates. Raw contexts remain outside the repository and must be reacquired for a release study."
+}

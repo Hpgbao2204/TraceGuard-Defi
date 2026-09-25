@@ -1,0 +1,18 @@
+{
+  "allowed_tx_roles": [
+    "exploit",
+    "setup",
+    "approval",
+    "drain",
+    "sweep",
+    "auxiliary"
+  ],
+  "created_utc": "2026-09-16T07:27:22.308374+00:00",
+  "incident_count": 6,
+  "output_sha256": "f1d6acd8b2f255d3d48f136516aa1672f93c8c549a2ce0ff849e16f61710b2cf",
+  "purpose": "V0.1 canonical transaction review; no automatic selection",
+  "schema_version": 1,
+  "source_path": "corpus/vnext/positive_registry.jsonl",
+  "source_sha256": "b5dec15c778fda4e466a4f6723f1b18ff1e3e1da17a2645c41c362ea17904029",
+  "status": "PENDING_INDEPENDENT_REVIEW"
+}

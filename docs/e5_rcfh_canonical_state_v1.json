@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "artifact": "e5-rcfh-canonical-state",
+  "state_id": "e5-rcfh-v1-2026-09-18",
+  "corpus": {
+    "corpus_id": "m4-frozen-20",
+    "manifest": "docs/m4_frozen_case_manifest.json",
+    "manifest_sha256": "48b7f2c97ca5ef10c0635af220725a7dfc7fa6b90c1e6d374b73ebbc4e809eac",
+    "case_count": 20
+  },
+  "claim_sources": {
+    "local_claims": {
+      "artifact": "eval/results/e5_rcfh/label_crosswalk.json",
+      "coverage": "20/20",
+      "artifact_sha256": "86e16c8ef1259484a26b0457f34f5c180851c72b32715a6056b2ae2f618dfa1a"
+    },
+    "incident_explorer": {
+      "artifact": "eval/results/e5_rcfh/incident_explorer_matches.json",
+      "exact_tx_matches": "9/20",
+      "artifact_sha256": "a8fe99eefee32637850145ad9a53167d18b1e1ff32c4dbd92980dbfa72f58868"
+    },
+    "other_independent_sources": {
+      "txray": "MISSING",
+      "lookahead": "MISSING",
+      "rca_repo": "MISSING",
+      "bastet": "MISSING"
+    },
+    "raw_label_agreement": "0/9; not semantic agreement because vocabularies are not normalized"
+  },
+  "localization": {
+    "seam_groups": 79,
+    "seam_occurrences": 640,
+    "mapped_cases": 6,
+    "mapped_fraction": 0.3,
+    "interpretation": "scanner localization coverage only; not falsifiability or root-cause coverage"
+  },
+  "replay": {
+    "admissible_e5_replays": 0,
+    "supported": 0,
+    "supported_blocking": 1,
+    "refuted": 0,
+    "partial_effect": 0,
+    "not_testable": 6,
+    "claim_not_localizable": 14,
+    "status": "PILOT_COMPLETE_ONE_BLOCKING_VERDICT"
+  },
+  "claim_schema_v2": {
+    "artifact": "eval/results/e5_rcfh/claim_schema_v2.json",
+    "case_count": 20,
+    "normalized_from_reviewer_c": 20,
+    "causal_boundary_frozen": 0,
+    "replay_authorized": 0,
+    "interpretation": "Root mechanisms are normalized claims; factor labels remain enabling hypotheses. Boundary and dependency fields are unresolved until case review."
+  },
+  "boundary_review_v2": {
+    "artifact": "eval/results/e5_rcfh/claim_boundary_review_v2.json",
+    "reviewed_cases": 3,
+    "claim_matched_partial": 1,
+    "boundary_materialized": 1,
+    "claim_not_matched_to_observed_operator": 2,
+    "replay_authorized": 0,
+    "interpretation": "MureDistribution has one matching auth seam but still lacks a frozen protected harm-write index and operator semantics. SizeFlashLoanLooping and SummerFi expose enabling/ambient seams that do not match their adjudicated root mechanisms."
+  },
+  "stage1_note": {
+    "current_near_negative_pool": 187,
+    "current_near_negative_fpr": "11.23% (21/187)",
+    "legacy_manuscript_values": "847 and 16.77%; retained only in historical critique artifacts"
+  },
+  "policy": "Claims are hypotheses; only normalized, admissible, committed counterfactual observations can support or refute them. NOT_TESTABLE is a reportable outcome."
+}

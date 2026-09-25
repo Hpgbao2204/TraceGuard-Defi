@@ -1,0 +1,9 @@
+{
+  "p7_mutated": false,
+  "raw_corpus_mutated": false,
+  "record_unit": "unique_incident",
+  "schema_version": 1,
+  "source_registry_sha256": "b5dec15c778fda4e466a4f6723f1b18ff1e3e1da17a2645c41c362ea17904029",
+  "status": "FROZEN",
+  "verified_attack_incidents": 153
+}

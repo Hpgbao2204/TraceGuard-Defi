@@ -1,0 +1,16 @@
+{
+  "final_labels_allowed": [
+    "KNOWN_MALICIOUS",
+    "PROTOCOL_MISUSE",
+    "UNCERTAIN",
+    "VERIFIED_BENIGN",
+    "WHITEHAT_RESCUE"
+  ],
+  "final_verified_benign": 0,
+  "records": 29,
+  "schema_version": 1,
+  "source_submission_sha256": "09b3fa22209ae5098c2ceeea1689113c7303e6ab127c9b93222b8554aedc0df9",
+  "stage": "B3.1",
+  "status": "PENDING_INDEPENDENT_ADJUDICATION",
+  "supporting_likely_benign": 24
+}

@@ -1,0 +1,10 @@
+{
+  "effective_incidents": 144,
+  "effective_sha256": "5de35204b2fed95fa29bd934cb24e5d4eacf3ee8e630073b69cc7c8665df465a",
+  "excluded_incidents": 9,
+  "exclusions_sha256": "d7cd5af43354182b91eaf23838b0a9720456c7d0ebcb341fd55b2fd666fe539d",
+  "policy": "Original registry remains immutable; excluded incidents are retained with explicit fail-closed reasons.",
+  "schema_version": 1,
+  "source_registry_sha256": "b5dec15c778fda4e466a4f6723f1b18ff1e3e1da17a2645c41c362ea17904029",
+  "status": "FROZEN_EFFECTIVE_PENDING_SPLIT_AUDIT"
+}
