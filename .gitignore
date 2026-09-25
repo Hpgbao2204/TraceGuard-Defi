@@ -69,3 +69,7 @@ eval/vnext/**
 # Local-only: manuscript under double-blind review and internal research notes
 paper/
 docs/dev-notes/
+
+# Local work areas (worktrees, caches)
+.worktrees/
+.cache/
