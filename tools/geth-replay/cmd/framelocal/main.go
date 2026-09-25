@@ -251,7 +251,7 @@ func newInstrumentedHooks(
 				Input: hexutil.Encode(input), Gas: gas, Value: value.String(),
 			})
 			if revertClf != nil {
-				revertClf.onEnter(depth, from, to, input)
+				revertClf.onEnter(depth, typ, from, to, input)
 			}
 			if frameRec != nil {
 				frameRec.onEnter(depth, typ, from, to, input, gas, value)
@@ -345,13 +345,69 @@ func applyTarget(
 		balanceChanges: balanceChanges, logs: logs, opcodes: opcodes}
 }
 
-func applyTargetOverrides(st *state.StateDB, targetCode, targetStorage []string) {
+// loadCodeValue reads an override value: hex, or @path to a file holding hex
+// or a JSON artifact with deployedBytecode / runtime / bytecode (Windows
+// command lines cannot carry a 24 KB runtime).
+func loadCodeValue(v string) ([]byte, error) {
+	if !strings.HasPrefix(v, "@") {
+		return hexutil.Decode(v)
+	}
+	raw, err := os.ReadFile(v[1:])
+	if err != nil {
+		return nil, err
+	}
+	text := strings.TrimSpace(string(raw))
+	if strings.HasPrefix(text, "{") {
+		var art map[string]any
+		if err := json.Unmarshal(raw, &art); err != nil {
+			return nil, err
+		}
+		text = ""
+		for _, k := range []string{"deployedBytecode", "runtime", "bytecode"} {
+			if val, ok := art[k].(string); ok && val != "" {
+				text = val
+				break
+			}
+			if obj, ok := art[k].(map[string]any); ok {
+				if val, ok := obj["object"].(string); ok && val != "" {
+					text = val
+					break
+				}
+			}
+		}
+		if text == "" {
+			return nil, fmt.Errorf("%s: no deployedBytecode, runtime or bytecode", v[1:])
+		}
+	}
+	if !strings.HasPrefix(text, "0x") {
+		text = "0x" + text
+	}
+	return hexutil.Decode(text)
+}
+
+func applyTargetOverrides(st *state.StateDB, targetCode, targetStorage []string, codeCopy ...string) {
+	// Copies first, so a copy keeps the original code of an address that is
+	// then replaced (a guard at the provider forwarding to its shadow copy).
+	for _, item := range codeCopy {
+		dst, src, parseErr := parseOverride(item)
+		if parseErr != nil {
+			panic(parseErr)
+		}
+		code := st.GetCode(common.HexToAddress(src))
+		if len(code) == 0 {
+			panic("target-code-copy source has no code: " + src)
+		}
+		if len(st.GetCode(dst)) != 0 {
+			panic("target-code-copy destination already has code: " + dst.Hex())
+		}
+		st.SetCode(dst, append([]byte(nil), code...), tracing.CodeChangeUnspecified)
+	}
 	for _, item := range targetCode {
 		address, code, parseErr := parseOverride(item)
 		if parseErr != nil {
 			panic(parseErr)
 		}
-		decoded, decodeErr := hexutil.Decode(code)
+		decoded, decodeErr := loadCodeValue(code)
 		if decodeErr != nil {
 			panic(decodeErr)
 		}
@@ -419,6 +475,7 @@ type output struct {
 	EntryFrames           []victimEntryFrame         `json:"entry_frames,omitempty"`
 	RevertOrigin          *revertOriginResult        `json:"revert_origin,omitempty"`
 	ScopedReads           []scopedReadRecord         `json:"scoped_reads,omitempty"`
+	Probes                []probeResult              `json:"probes,omitempty"`
 	FrameLocalResult      *frameLocalExecutionResult `json:"frame_local_result,omitempty"`
 	WholeTxResult         *frameLocalExecutionResult `json:"whole_tx_result,omitempty"`
 	// BaselineTargetMatch: the unmodified target replay (pass 1) matched the
@@ -532,7 +589,7 @@ func main() {
 	proofPath := flag.String("proofs", "", "prestate_proofs.json (optional)")
 	targetIndex := flag.Int("target-index", -1, "target transaction index; defaults to last")
 	targetData := flag.String("target-data", "", "replacement calldata for target legacy tx")
-	mode := flag.String("mode", "whole-tx", "execution mode: whole-tx, record, frame-local, isolation, sham, discover")
+	mode := flag.String("mode", "whole-tx", "execution mode: whole-tx, record, frame-local, isolation, sham, discover, probe (record plus -probe static calls on S0)")
 	scopedPrice := flag.Bool("scoped-price", false, "enable read-site scoping for price sources (f_price)")
 	frameIndex := flag.Int("frame-index", -1, "target entry frame index for frame-local modes; -1 picks the harm frame with the largest per-token loss share")
 	doseLambda := flag.Float64("dose-lambda", -1.0, "dose-response lambda parameter in [0.0, 1.0]")
@@ -542,7 +599,9 @@ func main() {
 	lossMinFrac := flag.Float64("loss-min-frac", defaultThresholds.LossMinFrac, "L_min as a fraction of the baseline loss of the same token (CAUSE when L' <= L_min)")
 	rho := flag.Float64("rho", defaultThresholds.Rho, "PARTIAL when L_min < L' <= (1-rho)L")
 	shamScale := flag.Float64("sham-scale", 0.5, "sham mode: multiply each 32-byte word of the unrelated read by this factor")
+	delegateContext := flag.Bool("delegate-context", false, "classify a reverting DELEGATECALL frame by its storage context (caller) rather than its code address")
 	unscoped := flag.Bool("unscoped", false, "whole-tx ablation: pin the declared -read-site values for every caller (attacker and third parties too), not only for the victim")
+	var probeFlags stringListFlag
 	var victims stringListFlag
 	var scopeCallers stringListFlag
 	var attackers stringListFlag
@@ -552,10 +611,13 @@ func main() {
 	flag.Var(&attackers, "attacker", "attacker address (repeatable)")
 	flag.Var(&priceSources, "price-source", "price source contract address (repeatable)")
 	var readSiteFlags stringListFlag
+	flag.Var(&probeFlags, "probe", "probe mode: static call target:calldata on S0 (repeatable)")
 	flag.Var(&readSiteFlags, "read-site", "declared factor read site target:selector, '*' allowed on one side (repeatable); replaces the price-selector catalogue")
 	var targetCode stringListFlag
 	var targetStorage stringListFlag
-	flag.Var(&targetCode, "target-code", "address=runtime-bytecode override (repeatable)")
+	var targetCodeCopy stringListFlag
+	flag.Var(&targetCodeCopy, "target-code-copy", "dst=src: copy the S0 runtime of src to the empty address dst before -target-code (repeatable)")
+	flag.Var(&targetCode, "target-code", "address=runtime-bytecode override, or address=@file (hex or JSON artifact) (repeatable)")
 	flag.Var(&targetStorage, "target-storage", "address:slot=value override (repeatable)")
 	flag.Parse()
 	thresholds := verdictThresholds{LossMinFrac: *lossMinFrac, Rho: *rho}
@@ -708,7 +770,7 @@ func main() {
 	if authenticatedState {
 		resultOutput.Note = "One shared StateDB seeded from the proof-bound initial state at the parent state root, with ancestor headers and pre-execution applied (as in the main runner)."
 	}
-	resultOutput.Mutation = *targetData != "" || len(targetCode) > 0 || len(targetStorage) > 0
+	resultOutput.Mutation = *targetData != "" || len(targetCode) > 0 || len(targetStorage) > 0 || len(targetCodeCopy) > 0
 	if resultOutput.Mutation {
 		resultOutput.MutationNote = "target override applied after prefix transactions"
 	}
@@ -731,6 +793,9 @@ func main() {
 		var runErr error
 		if i == *targetIndex {
 			s0Snapshot := st.Copy()
+			if *mode == "probe" {
+				resultOutput.Probes = runProbes(s0Snapshot, &header, chainConfig, probeFlags)
+			}
 
 			// Recover tx sender if attackers list is empty
 			if len(attackers) == 0 {
@@ -754,7 +819,8 @@ func main() {
 			}
 
 			frameMode := *mode == "frame-local" || *mode == "isolation" || *mode == "sham" || *mode == "discover"
-			wholeTxVerdict := *mode == "whole-tx" && *scopedPrice
+			codeIntervention := len(targetCode) > 0 || len(targetStorage) > 0
+			wholeTxVerdict := *mode == "whole-tx" && (*scopedPrice || codeIntervention)
 
 			// Pass 1: unmodified baseline on a copy of S0, for every mode that
 			// compares against it.
@@ -770,7 +836,7 @@ func main() {
 
 			// Pass 2: counterfactual on the shared state.
 			targetPrefixLogCount = len(st.Logs())
-			applyTargetOverrides(st, targetCode, targetStorage)
+			applyTargetOverrides(st, targetCode, targetStorage, targetCodeCopy...)
 
 			var run *targetRun
 			if frameMode {
@@ -800,6 +866,7 @@ func main() {
 					scopingMgr.entryState = func() *state.StateDB { return cfRecorder.targetEntryState }
 				}
 				cfRevertClf := newRevertClassifier(victims, attackers, nil)
+				cfRevertClf.delegateContext = *delegateContext
 				run = applyTarget(st, &header, chainConfig, gasPool, &tx, scopingMgr, cfRecorder, cfRevertClf, func(e *vm.EVM) { cfEVM = e })
 
 				consumed := len(scopingMgr.records) > 0
@@ -858,9 +925,14 @@ func main() {
 				scopingMgr.attackers = addressSet(attackers)
 				frameRec := newFrameRecorder(st, victims, attackers, false, -1, nil)
 				revertClf := newRevertClassifier(victims, attackers, nil)
+				revertClf.delegateContext = *delegateContext
 				run = applyTarget(st, &header, chainConfig, gasPool, &tx, scopingMgr, frameRec, revertClf, nil)
 
 				resultOutput.EntryFrames = frameRec.entryFrames
+				// A code or storage override is an intervention too: it is
+				// consumed, and precedes a revert, from the first time the
+				// overridden address is entered.
+				scopingMgr.records = append(scopingMgr.records, overrideEvents(revertClf, targetCode, targetStorage)...)
 				resultOutput.ScopedReads = scopingMgr.records
 				revertClf.scopedReads = scopingMgr.records
 				cfFailed := run.err != nil || run.receipt == nil || run.receipt.Status != types.ReceiptStatusSuccessful
@@ -982,6 +1054,68 @@ func addressSet(list []string) map[common.Address]bool {
 	for _, v := range list {
 		if v = strings.TrimSpace(v); v != "" {
 			out[common.HexToAddress(v)] = true
+		}
+	}
+	return out
+}
+
+// probeResult is one static call on S0 (pre-transaction state).
+type probeResult struct {
+	Target string `json:"target"`
+	Input  string `json:"input"`
+	Output string `json:"output,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+// runProbes answers static questions about S0, for example whether a victim
+// is an AMM pair (factory(), token0(), token1()). Each call runs on its own
+// copy of S0 from the zero address.
+func runProbes(s0 *state.StateDB, header *types.Header, cfg *params.ChainConfig, specs []string) []probeResult {
+	out := make([]probeResult, 0, len(specs))
+	for _, spec := range specs {
+		parts := strings.SplitN(strings.TrimSpace(spec), ":", 2)
+		if len(parts) != 2 || !common.IsHexAddress(parts[0]) {
+			out = append(out, probeResult{Target: spec, Error: "bad probe, want target:calldata"})
+			continue
+		}
+		input, err := hexutil.Decode("0x" + strings.TrimPrefix(strings.ToLower(parts[1]), "0x"))
+		if err != nil {
+			out = append(out, probeResult{Target: parts[0], Input: parts[1], Error: "bad calldata"})
+			continue
+		}
+		to := common.HexToAddress(parts[0])
+		evm := vm.NewEVM(core.NewEVMBlockContext(header, chainFor(header, cfg), &header.Coinbase), s0.Copy(), cfg, vm.Config{})
+		ret, _, callErr := evm.StaticCall(common.Address{}, to, input, vm.NewGasBudget(5_000_000, 0))
+		r := probeResult{Target: to.Hex(), Input: hexutil.Encode(input), Output: hexutil.Encode(ret)}
+		if callErr != nil {
+			r.Error = callErr.Error()
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// overrideEvents records the first entry into each address whose code or
+// storage was overridden, as an intervention event with its clock time.
+func overrideEvents(clf *revertClassifier, targetCode, targetStorage []string) []scopedReadRecord {
+	addrs := map[common.Address]bool{}
+	for _, item := range targetCode {
+		if a, _, err := parseOverride(item); err == nil {
+			addrs[a] = true
+		}
+	}
+	for _, item := range targetStorage {
+		if left := strings.SplitN(strings.SplitN(item, "=", 2)[0], ":", 2); len(left) == 2 {
+			addrs[common.HexToAddress(left[0])] = true
+		}
+	}
+	var out []scopedReadRecord
+	for _, n := range clf.nodes {
+		if addrs[n.To] {
+			out = append(out, scopedReadRecord{Depth: n.Depth, Caller: n.From.Hex(), Target: n.To.Hex(),
+				Selector: n.Selector, FrameIndex: -1, Seq: n.EnterSeq, Kind: "code_override",
+				CallerClass: clf.classifyOrigin(n.From)})
+			delete(addrs, n.To)
 		}
 	}
 	return out

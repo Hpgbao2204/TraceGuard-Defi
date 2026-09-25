@@ -50,6 +50,8 @@ type scopedReadRecord struct {
 	// from S0 then (changed by the attacker before V was entered).
 	EntryValue         string `json:"entry_value,omitempty"`
 	ChangedBeforeEntry bool   `json:"changed_before_entry,omitempty"`
+	// Args is the calldata after the selector (hex, capped), e.g. the holder of balanceOf.
+	Args string `json:"args,omitempty"`
 	// CallerClass is victim, attacker or third_party (who made this read).
 	CallerClass string `json:"caller_class,omitempty"`
 }
@@ -68,12 +70,29 @@ type readSite struct {
 	target   common.Address
 	anyAddr  bool
 	selector string
+	args     string // optional exact calldata after the selector (hex, no 0x); "" matches any
 }
 
-// parseReadSite parses "target:selector", where either side may be "*".
+const maxArgsHex = 512
+
+// argsHex is the calldata after the selector as lowercase hex, capped.
+func argsHex(input []byte) string {
+	if len(input) <= 4 {
+		return ""
+	}
+	h := hex.EncodeToString(input[4:])
+	if len(h) > maxArgsHex {
+		h = h[:maxArgsHex]
+	}
+	return h
+}
+
+// parseReadSite parses "target:selector" or "target:selector:args", where
+// either of target and selector may be "*" and args is the exact calldata
+// after the selector (for example the holder of balanceOf).
 func parseReadSite(v string) (readSite, error) {
-	parts := strings.SplitN(strings.TrimSpace(v), ":", 2)
-	if len(parts) != 2 {
+	parts := strings.SplitN(strings.TrimSpace(v), ":", 3)
+	if len(parts) < 2 {
 		return readSite{}, fmt.Errorf("read-site must be target:selector, got %q", v)
 	}
 	rs := readSite{}
@@ -93,6 +112,13 @@ func parseReadSite(v string) (readSite, error) {
 	}
 	if rs.anyAddr && rs.selector == "" {
 		return readSite{}, fmt.Errorf("read-site *:* would match every call")
+	}
+	if len(parts) == 3 {
+		a := strings.TrimPrefix(strings.ToLower(parts[2]), "0x")
+		if _, err := hex.DecodeString(a); err != nil || a == "" {
+			return readSite{}, fmt.Errorf("bad read-site args %q", parts[2])
+		}
+		rs.args = a
 	}
 	return rs, nil
 }
@@ -206,10 +232,11 @@ func (m *scopingManager) isVictim(addr common.Address) bool {
 	return m.victims[addr]
 }
 
-func (m *scopingManager) isPriceTarget(addr common.Address, selector string) bool {
+func (m *scopingManager) isPriceTarget(addr common.Address, selector, args string) bool {
 	if len(m.readSites) > 0 {
 		for _, rs := range m.readSites {
-			if (rs.anyAddr || rs.target == addr) && (rs.selector == "" || rs.selector == selector) {
+			if (rs.anyAddr || rs.target == addr) && (rs.selector == "" || rs.selector == selector) &&
+				(rs.args == "" || rs.args == args) {
 				return true
 			}
 		}
@@ -280,6 +307,7 @@ func (m *scopingManager) discover(depth int, from, to common.Address, selector s
 		FrameIndex:    frameIdx,
 		Seq:           m.clock.now(),
 		Kind:          valueDiscover,
+		Args:          argsHex(input),
 	}
 	rec.Diverges = !rec.IsRevert && rec.V0Value != rec.ObservedValue
 	if m.entryState != nil {
@@ -440,7 +468,7 @@ func (m *scopingManager) onEnter(
 		if !m.unscoped && !m.scopeCallers[from] {
 			return
 		}
-		if !m.isPriceTarget(to, selector) {
+		if !m.isPriceTarget(to, selector, argsHex(input)) {
 			return
 		}
 	}
@@ -488,6 +516,7 @@ func (m *scopingManager) onEnter(
 		Kind:          m.valueMode,
 		ReturnedValue: "0x" + hex.EncodeToString(valueToReturn),
 		CallerClass:   m.callerClass(from),
+		Args:          argsHex(input),
 	}
 	m.records = append(m.records, record)
 

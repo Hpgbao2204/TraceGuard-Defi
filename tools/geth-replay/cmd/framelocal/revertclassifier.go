@@ -30,6 +30,10 @@ type revertOriginResult struct {
 	RevertMessage  string      `json:"revert_message,omitempty"`  // decoded Error(string), panic code, or error selector
 	RevertData     string      `json:"revert_data,omitempty"`     // raw revert output of the origin frame (capped)
 	RevertChain    []revertHop `json:"revert_chain,omitempty"`    // reverted frames from the start frame down to the origin
+	// Storage context of the origin frame (differs from the origin address for
+	// DELEGATECALL code). Reported only; verdicts use OriginClass.
+	OriginContext      string `json:"origin_context,omitempty"`
+	OriginContextClass string `json:"origin_context_class,omitempty"`
 }
 
 // revertHop is one reverted frame on the path to the revert origin.
@@ -116,6 +120,7 @@ type callTreeNode struct {
 	ExitSeq     uint64
 	Selector    string
 	Output      []byte
+	Context     common.Address // storage context: the caller for DELEGATECALL/CALLCODE, else To
 }
 
 type revertClassifier struct {
@@ -125,6 +130,10 @@ type revertClassifier struct {
 	nodes        []*callTreeNode
 	currentStack []*callTreeNode
 	clock        *eventClock
+	// delegateContext classifies a DELEGATECALL/CALLCODE frame by its storage
+	// context (the caller) instead of its code address (for module-based
+	// protocols such as Euler). Off by default.
+	delegateContext bool
 }
 
 func newRevertClassifier(
@@ -156,7 +165,7 @@ func newRevertClassifier(
 	}
 }
 
-func (c *revertClassifier) onEnter(depth int, from, to common.Address, input []byte) {
+func (c *revertClassifier) onEnter(depth int, typ byte, from, to common.Address, input []byte) {
 	nodeIdx := len(c.nodes)
 	parentIdx := -1
 	var parentNode *callTreeNode
@@ -172,6 +181,10 @@ func (c *revertClassifier) onEnter(depth int, from, to common.Address, input []b
 		ParentIndex: parentIdx,
 		Children:    make([]*callTreeNode, 0),
 		EnterSeq:    c.clock.now(),
+		Context:     to,
+	}
+	if typ == 0xf4 || typ == 0xf2 { // DELEGATECALL, CALLCODE run in the caller's context
+		node.Context = from
 	}
 	if len(input) >= 4 {
 		node.Selector = "0x" + hex.EncodeToString(input[:4])
@@ -280,6 +293,9 @@ func (c *revertClassifier) classifyFrom(start *callTreeNode, txRevertReason stri
 	}
 
 	originClass := c.classifyOrigin(curr.To)
+	if c.delegateContext {
+		originClass = c.classifyOrigin(curr.Context)
+	}
 	errorMsg := curr.Error
 	if errorMsg == "" {
 		errorMsg = txRevertReason
@@ -320,6 +336,8 @@ func (c *revertClassifier) classifyFrom(start *callTreeNode, txRevertReason stri
 	}
 	return revertOriginResult{
 		OriginCaller:               curr.From.Hex(),
+		OriginContext:              curr.Context.Hex(),
+		OriginContextClass:         c.classifyOrigin(curr.Context),
 		OriginSelector:             curr.Selector,
 		RevertKind:                 kind,
 		RevertMessage:              msg,

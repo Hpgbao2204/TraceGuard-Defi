@@ -43,6 +43,7 @@ MODES = ("whole-tx", "frame-local", "isolation", "sham")
 ALL_MODES = MODES + ("unscoped",)
 WHOLE_TX_MODES = ("whole-tx", "unscoped")
 VERDICT_MODES = ("whole-tx", "unscoped", "frame-local")
+MAX_PINNED = 50
 # Dose-response modes are written "whole-tx@0.5" / "frame-local@0.5": the
 # factor is moved only a fraction lambda of the way from observed to S0.
 
@@ -145,6 +146,8 @@ def interpret(payload: dict[str, Any] | None, mode: str, error: str | None = Non
     reads = payload.get("scoped_reads") or []
     if reads:
         rec["reads_by_caller"] = dict(sorted(Counter(r.get("caller_class") or "victim" for r in reads).items()))
+        rec["pinned"] = [{k: r.get(k) for k in ("caller", "caller_class", "target", "selector", "args", "kind", "seq")}
+                         for r in reads[:MAX_PINNED]]
     if not rec["replay_gate"]:
         rec["raw_verdict"] = rec["verdict"]
         rec["verdict"] = "INCONCLUSIVE"

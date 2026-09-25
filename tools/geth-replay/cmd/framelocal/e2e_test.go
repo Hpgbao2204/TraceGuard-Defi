@@ -204,6 +204,15 @@ func TestE2EFrameLocalModes(t *testing.T) {
 	if ro := un.RevertOrigin; ro == nil || ro.OriginClass != "victim" || ro.RevertKind != "empty" || len(un.ScopedReads) != 1 || un.ScopedReads[0].CallerClass != "victim" {
 		t.Fatalf("unscoped revert detail: %+v %+v", un.RevertOrigin, un.ScopedReads)
 	}
+	// Code intervention: the oracle replaced by code returning 0; no -scoped-price.
+	code := runCLI(t, append(append([]string{}, common...), "-mode", "whole-tx", "-target-code", e2eOracle.Hex()+"=0x600060005260206000f3")...)
+	if code.WholeTxResult == nil || code.WholeTxResult.Verdict != "CAUSE_BLOCKED" {
+		t.Fatalf("code override whole-tx: %+v", code.WholeTxResult)
+	}
+	pr := runCLI(t, append(append([]string{}, common...), "-mode", "probe", "-probe", e2eOracle.Hex()+":0x0dfe1681", "-probe", "zz")...)
+	if len(pr.Probes) != 2 || pr.Probes[0].Output != hexutil.Encode(common2word(100)) || pr.Probes[1].Error == "" {
+		t.Fatalf("probe: %+v", pr.Probes)
+	}
 	if !wholePartial.ReplayGate {
 		t.Logf("replay gate false without a proof file, as expected")
 	}
