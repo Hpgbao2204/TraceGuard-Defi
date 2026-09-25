@@ -1076,6 +1076,7 @@ type output struct {
 	DroppedIndices             []int                 `json:"dropped_indices,omitempty"`
 	OrderingIntervention       *orderingReport       `json:"ordering_intervention,omitempty"`
 	Timing                     replayTiming          `json:"timing_ms"`
+	Lean                       bool                  `json:"lean"`
 	Note                       string                `json:"note"`
 }
 
@@ -1417,6 +1418,7 @@ func main() {
 	interventionCallbackInput := flag.String("intervention-callback-input", "", "frozen callback calldata for callback_trampoline")
 	interventionCapitalToken := flag.String("intervention-capital-token", "", "ERC-20 token for callback_trampoline_transfer")
 	interventionCapitalAmount := flag.String("intervention-capital-amount", "", "ERC-20 amount for callback_trampoline_transfer")
+	lean := flag.Bool("lean", false, "target tracer records only logs, balance changes and top-level revert data (no call trace, storage changes or opcodes)")
 	var dropTx stringListFlag
 	flag.Var(&dropTx, "drop-tx", "prefix transaction index to remove before replaying the rest unchanged (repeatable or comma-separated)")
 	var targetCode stringListFlag
@@ -1446,6 +1448,9 @@ func main() {
 				panic("--intervention-occurrences contains duplicate occurrence")
 			}
 		}
+	}
+	if *lean && (*emitOpcodeTelemetry || *opcodeTelemetryNDJSON != "" || *interventionAction != "") {
+		panic("--lean cannot be combined with opcode telemetry or call interventions")
 	}
 	if *replayMode != "discovery" && *replayMode != "frozen-validation" {
 		panic("--replay-mode must be discovery or frozen-validation")
@@ -1812,7 +1817,12 @@ func main() {
 			var storageChanges *[]storageChange
 			var logs *[]*types.Log
 			var opcodes *[]opcodeEvent
-			if i == *targetIndex {
+			if i == *targetIndex && *lean {
+				var hooks *tracing.Hooks
+				hooks, revertData, balanceChanges = newLeanHooks()
+				hooks.OnOpcode = readGuard.onOpcode
+				config.Tracer = hooks
+			} else if i == *targetIndex {
 				var hooks *tracing.Hooks
 				hooks, frames, revertData, balanceChanges, storageChanges, logs, opcodes = newCallHooks(*compactOpcodeTelemetry)
 				originalOnOpcode := hooks.OnOpcode
@@ -2089,6 +2099,7 @@ func main() {
 			break
 		}
 	}
+	resultOutput.Lean = *lean
 	resultOutput.Timing.EVMReplay = durationMS(evmReplay)
 	resultOutput.Timing.TargetEVM = durationMS(targetEVM)
 	resultOutput.Timing.Note = replayTimingNote
