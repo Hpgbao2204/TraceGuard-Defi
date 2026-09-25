@@ -210,7 +210,9 @@ func TestDropFrontRunChangesVictimAndFlagsIntermediate(t *testing.T) {
 		!containsString(report.Confounds[0].Kinds, confoundLogsChanged) {
 		t.Fatalf("intermediate change not reported as confound: %+v", report.Confounds)
 	}
-	if timing.EVMReplay <= 0 || timing.TargetEVM <= 0 || timing.TargetEVM > timing.EVMReplay {
+	// Coarse clocks (about 0.5-1 ms on Windows) can report 0 for this tiny
+	// fixture, so only the ordering of the figures is checked.
+	if timing.EVMReplay < 0 || timing.TargetEVM < 0 || timing.TargetEVM > timing.EVMReplay {
 		t.Fatalf("implausible timing %+v", timing)
 	}
 }
@@ -346,4 +348,24 @@ func newTestKey(t *testing.T, seed byte) *ecdsaKey {
 		t.Fatal(err)
 	}
 	return &ecdsaKey{private: key, address: crypto.PubkeyToAddress(key.PublicKey)}
+}
+
+func TestLeanHooksKeepLedgerInputsOnly(t *testing.T) {
+	hooks, revertData, balances := newLeanHooks()
+	if hooks.OnOpcode != nil || hooks.OnEnter != nil || hooks.OnStorageChange != nil || hooks.OnLog != nil {
+		t.Fatal("lean tracer must not record frames, storage, opcodes or duplicate logs")
+	}
+	sender := common.HexToAddress("0x01")
+	hooks.OnBalanceChange(sender, big.NewInt(10), big.NewInt(7), tracing.BalanceDecreaseGasBuy)
+	hooks.OnExit(1, []byte{0xaa}, 0, nil, true)
+	if *revertData != "" {
+		t.Fatal("inner revert must not be reported as top-level revert data")
+	}
+	hooks.OnExit(0, []byte{0x08, 0xc3, 0x79, 0xa0}, 0, nil, true)
+	if *revertData != "0x08c379a0" {
+		t.Fatalf("top-level revert data %q", *revertData)
+	}
+	if len(*balances) != 1 || (*balances)[0].Current != "7" {
+		t.Fatalf("balance changes %+v", *balances)
+	}
 }
