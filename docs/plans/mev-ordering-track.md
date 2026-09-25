@@ -91,12 +91,23 @@ Runner mới `eval/rq3/run_fixed20.py`:
 
 ### W5: Script vẽ hình
 
-`eval/plots/` sinh mọi hình trong paper từ JSON kết quả. Mỗi hình một hàm, xuất PDF vector, font 8–9 pt, rộng 0.48 hoặc 0.95 `\textwidth`:
+**Phong cách bắt buộc:** mỗi RQ có **một hình nhiều panel** (a), (b), (c)…, rộng hết `\textwidth`. Mỗi panel phải thể hiện nhiều chiều cùng lúc: phân bố, từng case, trade-off, khoảng tin cậy, đường tham chiếu. Không vẽ bar chart một chỉ số chỉ để lặp lại số trong bảng; số tổng hợp đã nằm trong các bảng của paper.
 
-1. `fig_prcurve.pdf` (RQ1): đã có, giữ.
-2. `fig_latency.pdf` (RQ2): so sánh latency full-trace và lean (bar hoặc CDF).
-3. `fig_rq3_verdicts.pdf` (RQ3): verdict whole-tx và frame-local xếp chồng, kèm lý do INCONCLUSIVE.
-4. `fig_rq4_sim.pdf` (RQ4): tỉ lệ chặn và chặn nhầm theo kiểu tấn công, so TraceGuard với heuristic hình dạng.
+**Quy ước chung** (đặt trong một module style dùng chung, ví dụ `eval/plots/style.py`):
+- Xuất PDF vector, font serif 8 pt cho khớp LNCS; nhãn panel "(a)", "(b)"… in đậm ở góc trên trái.
+- Bảng màu an toàn cho người mù màu, **cố định trên mọi hình**:
+  - verdict: CAUSE, CAUSE_BLOCKED, PARTIAL, NO_EFFECT, INCONCLUSIVE
+  - policy: shape heuristic, TraceGuard fail-closed, TraceGuard fail-open
+- Không bắt buộc matplotlib. Sơ đồ (không phải dữ liệu) vẽ bằng TikZ.
+
+**Mỗi script đọc JSON kết quả rồi xuất vào `paper/figures/` trên máy chủ repo.** `paper/` không có trên cloud, nên script nhận `--out` và cloud test bằng dữ liệu giả.
+
+| File | Panel | Dữ liệu |
+|---|---|---|
+| `fig_rq1.pdf` | (a) PR curve của 3 cohort (fixed split, chronological, near-negative), đánh dấu điểm hoạt động ở ngưỡng đóng băng, các proxy vẽ dạng marker; (b) phân bố điểm đã hiệu chỉnh của attack, background, near-negative, có đường $\tau_{1\%}$, báo động nhầm tô màu theo view trội; (c) AUPRC kèm CI cho từng đánh giá (30 resplit, bootstrap, chronological, leave-one-family-out, ablation), marker đặc nếu FPR nằm trong ngân sách, kích thước tỉ lệ số attack | `eval/results/e1_*` (có sẵn trên máy chủ repo) |
+| `fig_rq2.pdf` | (a) lưới bằng chứng 20 case × các kiểm tra (proof, status, gas, logs hash, post-state, Nethermind), ghi chú độ dài prefix và số proof; (b) latency target từng case, full và lean, nhiều lần chạy, trục log, đường 500 ms và 12 s; (c) phân rã chi phí (lấy proof, load, EVM) cho triage và builder | M4 fidelity, W1 lặp lại |
+| `fig_rq3.pdf` | (a) luồng alluvial của 20 case: unscoped → read-scoped → frame-local, INCONCLUSIVE tách theo lý do; (b) ma trận gate: 20 case × gate (positive control, consumption, attacker input, isolation, sham, revert origin), cột verdict cuối; (c) dumbbell loss baseline và counterfactual cho các case có verdict, trục log USD, đường $L_{\min}$ | W2 `summary.json` |
+| `fig_rq4.pdf` | (a) trade-off: tỉ lệ chặn sandwich và tỉ lệ chặn nhầm benign, một điểm cho mỗi policy × kiểu tấn công, CI qua các seed; (b) loss replay và ground truth `x*y=k` (log-log, đường y=x), tô theo kiểu tấn công; (c) heatmap kiểu tấn công × policy, ô = tỉ lệ chặn; (d) CDF loss tránh được trên mainnet, kèm số confound và INCONCLUSIVE | W3 `results.json`, W4 |
 
 ## 5. Bảng đối chiếu claim với bằng chứng
 
