@@ -32,7 +32,7 @@ Tài liệu giao việc cho phiên Claude Code trên cloud. Đọc hết trướ
 | RQ | Câu hỏi | Nguồn số liệu | Trạng thái |
 |---|---|---|---|
 | **RQ1** | Screener có xếp hạng được tấn công dưới FPR đóng băng không, và hình dạng trace bị giới hạn tới đâu? (split chuẩn, dịch chuyển thời gian và family, near-negative, ablation) | `eval/e1_*`, đã có trong bản thảo | Có số |
-| **RQ2** | Replay có xác thực có tái hiện đúng lịch sử và đủ nhanh cho builder không? | Fidelity: Nethermind 20/20 (đã có). Latency: `geth-replay -lean` | Chờ số lean |
+| **RQ2** | Replay có xác thực có tái hiện đúng lịch sử và đủ nhanh cho builder không? | Fidelity: Nethermind 20/20 (đã có). Latency: `geth-replay -lean` | Có số lean (W1) |
 | **RQ3** | Dưới revert confound, can thiệp có phạm vi, revert-origin và frame-local cho ra bao nhiêu verdict hợp lệ trên fixed-20? | `tools/geth-replay/cmd/framelocal`, `eval/rq3/fixed20_cases.json` | **Phải sửa lỗi và chạy lại** |
 | **RQ4** | Can thiệp thứ tự có phát hiện và ngăn được sandwich mà không chặn nhầm arbitrage không? | Mô phỏng `eval/mev_sim/` (ground truth), cộng 10–30 case mainnet (shadow mode) | Mô phỏng có kết quả sơ bộ |
 
@@ -133,7 +133,7 @@ Runner mới `eval/rq3/run_fixed20.py`:
 | Work item | Trạng thái | Ghi chú |
 |---|---|---|
 | M1 `-drop-tx` | xong, đã merge (PR #1) | Chạy trên 3 context thật: comparable đúng; exchangeissuance bị nonce gap nên ra incomparable, đúng mong đợi |
-| W1 `-lean` | PR #2, chờ chủ repo đo | |
+| W1 `-lean` | xong (PR #2) | Đo trên 3 context thật (Windows): base-lean `acceptance_gate=true` 3/3; output 0.07–0.15 MB (full-trace 490–662 MB); `target_evm` lean 6.1–10.6 ms, `evm_replay` 12.9–17.7 ms (full-trace 1543–1625 ms); `context_load` 27–50 ms đo riêng. Số latency giả định builder đã có state trong bộ nhớ. |
 | W2 RQ3 sửa frame-local | PR mở, chờ chủ repo chạy fixed-20 | Đã sửa 6 điểm trong `cmd/framelocal` + lỗi đếm Transfer hai lần; runner `eval/rq3/run_fixed20.py`. Mặc định L_min = 1% L theo từng token, ρ = 0.1 (cần đối chiếu với paper) |
 | W3 RQ4 mô phỏng | PR #3, kết quả sơ bộ | seed 7, 200 slot: chặn 227/227 sandwich, chặn nhầm 7/409 benign (victim revert khi bỏ front-run); latency là thời gian RPC của anvil; chưa có pool V3 |
 | W4 RQ4 mainnet | chưa bắt đầu | cần RPC, chạy ở local |
