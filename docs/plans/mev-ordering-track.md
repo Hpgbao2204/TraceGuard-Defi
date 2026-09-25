@@ -135,6 +135,6 @@ Runner mới `eval/rq3/run_fixed20.py`:
 | M1 `-drop-tx` | xong, đã merge (PR #1) | Chạy trên 3 context thật: comparable đúng; exchangeissuance bị nonce gap nên ra incomparable, đúng mong đợi |
 | W1 `-lean` | xong (PR #2) | Đo trên 3 context thật (Windows): base-lean `acceptance_gate=true` 3/3; output 0.07–0.15 MB (full-trace 490–662 MB); `target_evm` lean 6.1–10.6 ms, `evm_replay` 12.9–17.7 ms (full-trace 1543–1625 ms); `context_load` 27–50 ms đo riêng. Số latency giả định builder đã có state trong bộ nhớ. |
 | W2 RQ3 sửa frame-local | PR mở, chờ chủ repo chạy fixed-20 | Đã sửa 6 điểm trong `cmd/framelocal` + lỗi đếm Transfer hai lần; runner `eval/rq3/run_fixed20.py`. Mặc định L_min = 1% L theo từng token, ρ = 0.1 (cần đối chiếu với paper) |
-| W3 RQ4 mô phỏng | PR #3, kết quả sơ bộ | seed 7, 200 slot: chặn 227/227 sandwich, chặn nhầm 7/409 benign (victim revert khi bỏ front-run); latency là thời gian RPC của anvil; chưa có pool V3 |
+| W3 RQ4 mô phỏng | PR #3, đã rebase; xong mục 1, 2 | seed 7, 200 slot, tg_closed: EXCLUDE-on-CAUSE 197/227 sandwich, 0/409 benign; DEFAULT (ordering confound) 30 sandwich decoy + 7 benign (victim revert khi bỏ front-run), builder fail-closed nên cả 37 bị loại. Mục 3, 4 đã có số theo từng kiểu; còn mục 5 (nhiều seed). Latency là RPC anvil, không dùng cho claim; chưa có pool V3 |
 | W4 RQ4 mainnet | chưa bắt đầu | cần RPC, chạy ở local |
 | W5 hình | chưa bắt đầu | |
