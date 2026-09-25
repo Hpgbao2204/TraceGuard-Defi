@@ -39,9 +39,10 @@ PANEL_W, PANEL_H = 1.62, 1.55  # inches; three panels fit LNCS \textwidth (12.2 
 
 def style() -> None:
     plt.rcParams.update({
+        # Times, as in IEEE Transactions figures; STIX gives matching Times-style math.
         "font.family": "serif",
-        "font.serif": ["cmr10", "Computer Modern Roman", "DejaVu Serif"],
-        "mathtext.fontset": "cm",
+        "font.serif": ["Times New Roman", "Nimbus Roman", "STIXGeneral", "DejaVu Serif"],
+        "mathtext.fontset": "stix",
         "axes.formatter.use_mathtext": True,
         "axes.unicode_minus": False,
         "font.size": 7,
