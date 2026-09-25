@@ -156,7 +156,7 @@ Câu hỏi: *"Nếu một builder đã dùng TraceGuard trong khoảng thời gi
 
 | Milestone | Trạng thái | Ghi chú |
 |---|---|---|
-| M1 | chưa bắt đầu | |
+| M1 | xong (chờ review PR) | `-drop-tx`, fail-closed, `ordering_intervention`, `timing_ms`; test tổng hợp 1 pool 3 giao dịch trong `tools/geth-replay/ordering_test.go`. Chưa chạy trên context mainnet thật. |
 | M2 | chưa bắt đầu | |
 | M3 | chưa bắt đầu | demo ngăn chặn, làm được hoàn toàn trên cloud |
 | M4 | chưa bắt đầu | cần RPC, chạy ở local |

@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -1072,6 +1073,9 @@ type output struct {
 	ReadGuardReasons           []string              `json:"authenticated_read_failures,omitempty"`
 	ReadFailures               []readFailure         `json:"authenticated_read_failure_details,omitempty"`
 	MutationApplication        []mutationApplication `json:"mutation_application,omitempty"`
+	DroppedIndices             []int                 `json:"dropped_indices,omitempty"`
+	OrderingIntervention       *orderingReport       `json:"ordering_intervention,omitempty"`
+	Timing                     replayTiming          `json:"timing_ms"`
 	Note                       string                `json:"note"`
 }
 
@@ -1383,6 +1387,7 @@ func syntheticMessageWithData(tx *types.Transaction, signer types.Signer, baseFe
 }
 
 func main() {
+	startedAt := time.Now()
 	context := flag.String("context", "", "B2 context directory")
 	outputPath := flag.String("output", "", "output JSON")
 	listAuthorities := flag.Bool("list-authorities", false, "print recovered EIP-7702 authorities and exit")
@@ -1412,6 +1417,8 @@ func main() {
 	interventionCallbackInput := flag.String("intervention-callback-input", "", "frozen callback calldata for callback_trampoline")
 	interventionCapitalToken := flag.String("intervention-capital-token", "", "ERC-20 token for callback_trampoline_transfer")
 	interventionCapitalAmount := flag.String("intervention-capital-amount", "", "ERC-20 amount for callback_trampoline_transfer")
+	var dropTx stringListFlag
+	flag.Var(&dropTx, "drop-tx", "prefix transaction index to remove before replaying the rest unchanged (repeatable or comma-separated)")
 	var targetCode stringListFlag
 	var targetCodeCopy stringListFlag
 	var targetStorage stringListFlag
@@ -1517,6 +1524,14 @@ func main() {
 	}
 	if *targetIndex < 0 || *targetIndex >= len(txs) {
 		panic("target-index outside context")
+	}
+	droppedIndices, err := parseDropIndices(dropTx, *targetIndex)
+	if err != nil {
+		panic(err)
+	}
+	var ordering *orderingReport
+	if len(droppedIndices) > 0 {
+		ordering = newOrderingReport(droppedIndices, *targetIndex)
 	}
 	merged, err := mergeAccounts(traces)
 	if err != nil {
@@ -1661,9 +1676,30 @@ func main() {
 	if resultOutput.Mutation {
 		resultOutput.MutationNote = "target override applied after prefix transactions"
 	}
+	if ordering != nil {
+		resultOutput.DroppedIndices = ordering.DroppedIndices
+		resultOutput.OrderingIntervention = ordering
+		resultOutput.Note += " Ordering intervention: dropped prefix transactions are not executed, so fidelity gates are expected to fail; compare against the context receipts via ordering_intervention."
+	}
+	baselineFor := func(i int) baselineOutcome {
+		return baselineOutcome{Status: receipts[i].Receipt.Status == "0x1", Gas: quantity(receipts[i].Receipt.GasUsed).Uint64(), Logs: receipts[i].Receipt.Logs}
+	}
+	var evmReplay, targetEVM time.Duration
+	resultOutput.Timing.ContextLoad = durationMS(time.Since(startedAt))
 	targetPrefixLogCount := -1
 	for i, tx := range txs[:*targetIndex+1] {
 		readGuard.txIndex = i
+		if ordering != nil && ordering.isDropped(i) {
+			baseline := baselineFor(i)
+			ordering.recordDropped(i, tx.Hash().Hex(), baseline)
+			resultOutput.Results = append(resultOutput.Results, result{Index: i, Hash: tx.Hash().Hex(), ExpectedGas: baseline.Gas, ExpectedOK: baseline.Status, Error: "dropped by ordering intervention"})
+			resultOutput.AllGasMatch = false
+			resultOutput.AllStatus = false
+			resultOutput.AllLogsMatch = false
+			resultOutput.RelevantPostStateMatch = false
+			continue
+		}
+		var txEVM time.Duration
 		var messageOverride *core.Message
 		if i == *targetIndex && *targetData != "" {
 			var data []byte
@@ -1961,10 +1997,16 @@ func main() {
 			logStart := len(st.Logs())
 			var receipt *types.Receipt
 			var applyErr error
+			applyStart := time.Now()
 			if messageOverride != nil {
 				receipt, _, applyErr = applyMessageGuarded(evm, gasPool, st, &header, &tx, messageOverride, readGuard)
 			} else {
 				receipt, _, applyErr = applyTransactionGuarded(evm, gasPool, st, &header, &tx, readGuard)
+			}
+			txEVM = time.Since(applyStart)
+			evmReplay += txEVM
+			if i == *targetIndex {
+				targetEVM = txEVM
 			}
 			if applyErr != nil {
 				runErr = applyErr
@@ -2030,11 +2072,28 @@ func main() {
 		resultOutput.AllStatus = resultOutput.AllStatus && r.StatusMatch
 		resultOutput.AllLogsMatch = resultOutput.AllLogsMatch && r.LogsMatch
 		resultOutput.RelevantPostStateMatch = resultOutput.RelevantPostStateMatch && r.PostStateMatch
+		if ordering != nil {
+			ordering.recordExecuted(r, baselineFor(i), txEVM)
+			if readGuard.violated {
+				// The counterfactual order reached state outside the proof
+				// footprint. Values read there are defaults, not history:
+				// stop and report instead of guessing. Re-run discovery with
+				// -extra-footprint to extend the proof set.
+				ordering.failClosed(i, readGuard.reasons)
+				break
+			}
+		}
 		if isUnauthenticatedStateError(runErr) {
 			// The StateDB may have been partially mutated before the boundary
 			// violation. Do not execute later transactions on contaminated state.
 			break
 		}
+	}
+	resultOutput.Timing.EVMReplay = durationMS(evmReplay)
+	resultOutput.Timing.TargetEVM = durationMS(targetEVM)
+	resultOutput.Timing.Note = replayTimingNote
+	if ordering != nil {
+		ordering.finalize()
 	}
 	resultOutput.ReadGuardReasons = append([]string(nil), readGuard.reasons...)
 	resultOutput.ReadFailures = append([]readFailure(nil), readGuard.Failures...)
@@ -2050,7 +2109,9 @@ func main() {
 	resultOutput.ExpectedRoot = header.Root.Hex()
 	resultOutput.StateRootMatch = root == header.Root
 	if *proofPath != "" {
+		proofStart := time.Now()
 		accountsOK, storageOK, proofErr := verifyProofFile(*proofPath)
+		resultOutput.Timing.ProofVerify = durationMS(time.Since(proofStart))
 		resultOutput.ProofAccounts = accountsOK
 		resultOutput.ProofStorage = storageOK
 		resultOutput.PrestateProofVerified = proofErr == nil
