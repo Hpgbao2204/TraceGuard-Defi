@@ -48,3 +48,9 @@ python -m eval.e1_cli --steps train report       # Stage 1 from trace cache, ~2 
   (`fixed20_factors_v3.json`, `discover_factors --rule v3`) excludes them and must be committed before any run on it.
 - `eval/results/e4_fixed20_smallproject/e4_rq6_evaluation.json` numbers do not reconcile with the run artifacts;
   do not cite them.
+- Review revision (Sept 2026): `eval/rq3/fixed20_cases_amended.json` is the mechanical boundary amendment
+  (`eval/rq3/boundary_amendment.py`); the frozen `fixed20_cases.json` stays unchanged and the paper reports both.
+  Guard restorations live in `eval/rq3/guards/` (sources, expected reverts, `guards.lock.json`); commit changes
+  there before `eval.rq3.guard_restoration run`. `cmd/framelocal` gained `-target-extra-gas` (counterfactual runs
+  only) and the revert origin now follows only reverts re-raised unchanged (caught reverts are reported in
+  `caught_victim_reverts`). Mainnet sandwich drop tests: `eval/revision/mainnet_sandwich.py`.

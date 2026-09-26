@@ -5,8 +5,8 @@
 Reads .cache/revision/sandwich/results.json (eval.revision.mainnet_sandwich run; local only) and writes
   fig7a.pdf  per sandwich: the victim's relative shortfall when the front-run is dropped and when a placebo
              prefix transaction is dropped (symmetric-log axis), coloured by verdict, with delta = 10 bps;
-  fig7b.pdf  per sandwich with a CAUSE verdict: relative shortfall against the number of transactions
-             between front-run and victim, by pool kind (Uniswap V2 or V3).
+  fig7b.pdf  per run (baseline, front-run drop, placebo drop): the engine's EVM time for the target and for
+             the whole replayed prefix plus target, on the proof-bound mainnet contexts.
 """
 from __future__ import annotations
 
@@ -69,19 +69,28 @@ def main() -> int:
     fig.savefig(args.out / "fig7a.pdf")
     plt.close(fig)
 
-    # (b) shortfall against the number of transactions between front-run and victim, by pool kind
+    # (b) engine cost on mainnet contexts: target EVM time and whole-context replay time per run
+    runs_dir = args.results.parent / "runs"
     fig, ax = plt.subplots(figsize=(2.6, 1.7))
-    for kind, marker in (("v2", "o"), ("v3", "s")):
-        pts = [(r["victim"] - r["front"], _rel(r["front_drop"])) for r in rows
-               if r["kind"] == kind and r["front_drop"].get("verdict") == "CAUSE" and _rel(r["front_drop"])]
-        if pts:
-            ax.scatter([p[0] for p in pts], [p[1] for p in pts], s=11, marker=marker, color=C_ATTACK if kind == "v2" else INK,
-                       linewidths=0, alpha=0.85, label=f"Uniswap {kind.upper()}")
-    ax.set_yscale("log")
-    ax.axhline(DELTA, color=INK2, lw=0.6, ls=(0, (3, 2)))
-    ax.set_xlabel("victim index $-$ front-run index")
-    ax.set_ylabel("relative shortfall")
-    ax.legend(frameon=False, loc="upper right", handletextpad=0.2)
+    labels = [("base", "baseline"), ("drop_front", "front-run\ndropped"), ("drop_placebo", "placebo\ndropped")]
+    for y, (stem, _) in enumerate(labels):
+        tgt, rep = [], []
+        for r in rows:
+            f = runs_dir / r["victim_hash"] / f"{stem}.json"
+            if f.is_file():
+                t = json.loads(f.read_text(encoding="utf-8")).get("timing_ms") or {}
+                if t.get("target_evm") is not None:
+                    tgt.append(t["target_evm"])
+                    rep.append(t.get("evm_replay"))
+        jit = [(i % 5 - 2) * 0.06 for i in range(len(tgt))]
+        ax.scatter(tgt, [y + 0.12 + j for j in jit], s=9, color=C_ATTACK, linewidths=0, alpha=0.85,
+                   label="target" if y == 0 else None)
+        ax.scatter([x for x in rep if x], [y - 0.12 + j for j, x in zip(jit, rep) if x], s=9, color=MUTED,
+                   linewidths=0, alpha=0.85, label="prefix + target" if y == 0 else None)
+    ax.set_xscale("log")
+    ax.set_yticks(range(len(labels)), [lab for _, lab in labels])
+    ax.set_xlabel("EVM time per run (ms)")
+    ax.legend(frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2, handletextpad=0.2, fontsize=6.5)
     fig.savefig(args.out / "fig7b.pdf")
     plt.close(fig)
     print(f"wrote {args.out / 'fig7a.pdf'} and fig7b.pdf from {len(rows)} sandwiches")
