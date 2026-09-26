@@ -191,3 +191,67 @@ def test_end_to_end_decisions_follow_policy(sim):
 def test_end_to_end_benign_never_excluded_on_cause(sim):
     for mode in ("tg_open", "tg_closed"):
         assert not any(not b["attack"] and b["decision"] == EXCLUDE for b in _bundles(sim, mode))
+
+
+# ------------------------------------------------------------------ layer 2 on geth-replay
+def _geth_out(target_status=True, logs=(), comparable=True, confounds=(), fail_closed=False, error=""):
+    return {"per_tx": [{"index": 0, "error": "dropped by ordering intervention"},
+                       {"index": 1, "actual_status": target_status, "actual_gas": 1, "error": error,
+                        "logs": list(logs)}],
+            "ordering_intervention": {"comparable": comparable, "fail_closed": fail_closed,
+                                      "ordering_confounds": list(confounds)}}
+
+
+def test_geth_classify_cause_no_effect_and_confounds():
+    from eval.mev_sim.geth_bridge import classify_drop_run
+    thr, out_obs = Thresholds(), 900
+    clean = [transfer(T1, P, V, 1000)]
+    v, kinds, _ = classify_drop_run(_geth_out(logs=clean), 1, T1, out_obs, V, POOLS, thr)
+    assert (v.verdict, v.harm) == (CAUSE, 100) and kinds == []
+    v, _, _ = classify_drop_run(_geth_out(logs=[transfer(T1, P, V, 900)]), 1, T1, out_obs, V, POOLS, thr)
+    assert (v.verdict, v.harm) == (NO_EFFECT, 0)
+    v, kinds, _ = classify_drop_run(_geth_out(logs=clean, confounds=[{"index": 1, "kinds": ["logs_changed"]}]),
+                                    1, T1, out_obs, V, POOLS, thr)
+    assert (v.verdict, v.confound_kind, kinds) == (INCONCLUSIVE, "intermediate_changed", ["logs_changed"])
+    v, _, _ = classify_drop_run(_geth_out(target_status=False), 1, T1, out_obs, V, POOLS, thr)
+    assert (v.verdict, v.confound_kind) == (INCONCLUSIVE, "victim_reverted")
+    v, _, _ = classify_drop_run(_geth_out(logs=clean, fail_closed=True, comparable=False), 1, T1, out_obs, V,
+                                POOLS, thr)
+    assert (v.verdict, v.reason) == (INCONCLUSIVE, "fail_closed")
+    v, _, _ = classify_drop_run(_geth_out(target_status=False, error="nonce too high", comparable=False), 1, T1,
+                                out_obs, V, POOLS, thr)
+    assert (v.verdict, v.reason) == (INCONCLUSIVE, "incomparable")
+
+
+def test_sim_accounts_are_key_derived_except_deployer():
+    from eth_account import Account
+    from eth_utils import keccak, to_checksum_address
+
+    from eval.mev_sim.chain import TAG_DEPLOYER, TAG_FRESH, TAG_USER, addr, sim_key
+    for tag in (TAG_USER, TAG_FRESH):
+        a = addr(5, tag)
+        assert Account.from_key(sim_key(a)).address == a
+    legacy = to_checksum_address(keccak(TAG_DEPLOYER.to_bytes(4, "big") + (0).to_bytes(8, "big"))[-20:])
+    assert addr(0, TAG_DEPLOYER) == legacy
+
+
+@pytest.fixture(scope="module")
+def sim_geth():
+    from eval.mev_sim.geth_bridge import find_geth_replay
+    if not find_anvil():
+        pytest.skip("anvil not installed (foundry); set ANVIL=/path/to/anvil")
+    if not find_geth_replay():
+        pytest.skip("geth-replay not built (cd tools/geth-replay && go build -mod=vendor)")
+    from eval.mev_sim.run import run
+    return run(slots=6, seed=3, modes=("none", "tg_closed"), l2_engine="geth")
+
+
+def test_end_to_end_geth_replay_agrees_with_anvil(sim_geth):
+    evaluated = [b for s in sim_geth["slots"]["tg_closed"] for b in s["bundles"] if b["l2_engine"] == "geth"]
+    assert evaluated
+    for b in evaluated:
+        assert b["geth_gate"] is True                                   # fidelity gate on every exported block
+        assert (b["verdict"], b["reason"], b["harm_l2"]) == (b["anvil_verdict"], b["anvil_reason"], b["anvil_harm"])
+        assert b["geth_timing"].get("target_evm") is not None or b["verdict"] == INCONCLUSIVE
+    g = sim_geth["summary"]["tg_closed"]["geth_replay"]
+    assert g["baseline_gate"]["k"] == g["evaluated"]

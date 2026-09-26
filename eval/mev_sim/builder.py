@@ -7,6 +7,12 @@ Filter modes:
   l1_only      exclude everything layer 1 flags
   tg_open      layer 1 then layer 2; DEFAULT (INCONCLUSIVE) -> include (fail-open)
   tg_closed    layer 1 then layer 2; DEFAULT (INCONCLUSIVE) -> exclude (fail-closed)
+
+Layer 2 runs on one of two engines (``l2_engine``):
+  anvil   re-execute the kept bundle txs on an anvil snapshot and compare receipts (detection.layer2)
+  geth    mine the bundle as one block, export it as a proof-bound B2 context and decide with
+          ``geth-replay -drop-tx -lean`` (geth_bridge.layer2_geth); the anvil verdict is also
+          recorded (``anvil_verdict``) so the two engines can be compared bundle by bundle
 """
 from __future__ import annotations
 
@@ -18,8 +24,10 @@ from .amm import AmmModel, victim_harm
 from .chain import Receipt, World
 from .detection import (EXCLUDE, INCLUDE, Thresholds, decide, heuristic_naive, heuristic_strict, layer1,
                         layer2, resolve)
+from .geth_bridge import layer2_geth
 
 MODES = ("none", "heur_strict", "heur_naive", "l1_only", "tg_open", "tg_closed")
+ENGINES = ("anvil", "geth")
 
 
 @dataclass
@@ -46,6 +54,15 @@ class BundleRecord:
     sim_ms: float = 0.0
     l1_ms: float = 0.0
     l2_ms: float = 0.0
+    l2_engine: str = ""
+    anvil_verdict: str | None = None   # geth engine only: detection.layer2 on the same bundle
+    anvil_reason: str | None = None
+    anvil_harm: int | None = None
+    geth_gate: bool | None = None      # baseline acceptance_gate (RQ2 fidelity gate)
+    geth_confound_kinds: list[str] = field(default_factory=list)
+    geth_incomparable: str = ""
+    geth_timing: dict = field(default_factory=dict)
+    geth_context: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -63,9 +80,14 @@ class SlotRecord:
 
 
 class Builder:
-    def __init__(self, world: World, mode: str, thr: Thresholds | None = None):
+    def __init__(self, world: World, mode: str, thr: Thresholds | None = None, l2_engine: str = "anvil",
+                 geth_binary: str | None = None):
         assert mode in MODES, mode
+        assert l2_engine in ENGINES, l2_engine
+        if l2_engine == "geth" and not geth_binary:
+            raise ValueError("l2_engine=geth needs a geth-replay binary")
         self.w, self.mode, self.thr = world, mode, thr or Thresholds()
+        self.l2_engine, self.geth_binary = l2_engine, geth_binary
         self.rpc = world.rpc
         self.pools = {p.lower() for p in world.pools.values()}
         self.pool_tokens = world.pool_tokens
@@ -137,6 +159,20 @@ class Builder:
                 t0 = time.perf_counter()
                 v = layer2(obs, run_cf, b.txs[vi].sender, vi, l1.suspects, self.pools, self.thr)
                 rec.l2_ms = (time.perf_counter() - t0) * 1e3
+                rec.l2_engine = self.l2_engine
+                if self.l2_engine == "geth":
+                    rec.anvil_verdict, rec.anvil_reason, rec.anvil_harm = v.verdict, v.reason, v.harm
+                    s = self.rpc.snapshot()
+                    t0 = time.perf_counter()
+                    try:
+                        g = layer2_geth(self.rpc, self.geth_binary, [(t.sender, t.to, t.data) for t in b.txs],
+                                        b.txs[vi].sender, vi, l1.suspects, self.pools, self.thr)
+                    finally:
+                        self.rpc.revert(s)     # drop the mined replay block
+                    rec.l2_ms = (time.perf_counter() - t0) * 1e3
+                    v = g.verdict
+                    rec.geth_gate, rec.geth_confound_kinds = g.baseline_gate, g.confound_kinds
+                    rec.geth_incomparable, rec.geth_timing, rec.geth_context = g.incomparable, g.timing, g.context
                 l2_total += rec.l2_ms
                 rec.verdict, rec.reason, rec.harm_l2, rec.confounded = v.verdict, v.reason, v.harm, v.confounded
                 rec.confound_kind, rec.decision = v.confound_kind, decide(v.verdict)

@@ -15,6 +15,8 @@ pip install eth-abi eth-utils pycryptodome requests pytest
 # https://github.com/foundry-rs/foundry/releases and put anvil.exe on PATH (or set ANVIL=C:\path\anvil.exe)
 
 python -m eval.mev_sim.run --slots 200 --seed 7     # all six modes, ~2 min
+# layer 2 on the paper's replay engine (build it first: cd tools/geth-replay && go build -mod=vendor)
+python -m eval.mev_sim.run --slots 200 --seed 7 --l2-engine geth
 python -m pytest -q tests/test_mev_sim.py           # the anvil test skips if anvil is missing
 ```
 
@@ -68,6 +70,28 @@ one with any reverting tx is dropped (`invalid`). Remaining user txs are appende
   and DEFAULT separately.
 - Ground truth harm is computed separately with the x*y=k model on the reserves read before the bundle.
 
+## Layer 2 engines (`--l2-engine`, `geth_bridge.py`)
+
+- `anvil` (default, what PR #3 reported): the drop-and-resimulate step above runs as anvil
+  snapshot/execute/revert, and the comparison is Python code in `detection.layer2`.
+- `geth` (the paper's Stage 2): the builder mines the flagged bundle as **one** anvil block on the
+  current prefix (transactions signed with the simulation keys), exports it as a B2 context
+  (header, prefix+victim transactions, receipts, prestate/diff/call traces, EIP-1186 proofs against
+  the parent state root, 256 ancestor headers), then runs `geth-replay -chain-id 31337 -lean
+  -target-index <victim>` twice: without intervention, where `acceptance_gate` (the RQ2 fidelity
+  gate) must hold, and with `-drop-tx <layer-1 suspects>` (M1). Fail-closed, confounds and
+  comparability come from the engine's `ordering_intervention` report; the victim's output is read
+  from the engine's target logs. INCONCLUSIVE reasons: `replay_gate_failed`, `fail_closed`,
+  `ordering_confound` (`victim_reverted`, `intermediate_changed`; the engine also counts gas-only
+  changes), `incomparable`, `engine_error`, `no_victim_output`. The mined block is reverted afterwards,
+  so the chain evolves exactly as in the `anvil` engine. Each record keeps the anvil verdict too
+  (`anvil_verdict`, `anvil_harm`), and the run prints fidelity-gate passes and engine agreement.
+- Chain profile `31337` in `tools/geth-replay/chainconfig.go` is anvil's `--hardfork shanghai`
+  (all forks and the merge at genesis, no Cancun system calls); it is marked experimental and is
+  used only here. `MEVSIM_KEEP_CONTEXTS=1` keeps the exported contexts in the temp directory.
+- Layer 1 is a bundle-level screen, not the three-view Stage 1 screener of RQ1: that screener is
+  trained on exploit incidents and is not applied to bundles.
+
 ## Metrics (`metrics.py`)
 
 Per mode: sandwich bundles blocked / evaluated (overall and per variant), benign bundles blocked /
@@ -78,7 +102,9 @@ share of slots within 12 s and 500 ms. Rates carry Wilson 95% intervals.
 ## Limits to state when citing
 
 - Latency is anvil JSON-RPC time (snapshot, execute, revert), an upper bound for an in-process builder.
-  The engine-only replay time is M1's `timing_ms`.
+  With `--l2-engine geth` the per-bundle `geth_timing` holds the engine's `timing_ms` (`target_evm`,
+  `evm_replay`) on these small blocks; `l2_ms` then also includes mining, context export and two
+  process starts, so it is not a builder latency either. The latency claim stays with RQ2 (W1).
 - Lookalike bids are set just above the backrun bid so the builder evaluates them; this measures
   false-positive decisions, not the economics of those strategies.
 - Bundles are sized on the slot-start state, so many go stale and revert (`invalid`) when other bundles

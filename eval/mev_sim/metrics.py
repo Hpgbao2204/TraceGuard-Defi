@@ -93,6 +93,21 @@ def summarize(slots: list[dict], harm_none_a: float | None = None) -> dict:
             "per_slot_build_p50": pct([s["build_ms"] for s in slots], 0.5),
         },
     }
+    geth = [b for b in bundles if b.get("l2_engine") == "geth"]
+    if geth:
+        t = lambda key: [b["geth_timing"][key] for b in geth if key in b["geth_timing"]]  # noqa: E731
+        out["geth_replay"] = {
+            "evaluated": len(geth),
+            "baseline_gate": rate(sum(bool(b["geth_gate"]) for b in geth), len(geth)),
+            "verdict_equals_anvil": rate(sum(b["verdict"] == b["anvil_verdict"] and b["reason"] == b["anvil_reason"]
+                                             for b in geth), len(geth)),
+            "harm_equals_anvil": rate(sum(b["harm_l2"] == b["anvil_harm"] for b in geth), len(geth)),
+            "confound_kinds": dict(Counter(k for b in geth for k in b["geth_confound_kinds"])),
+            "target_evm_ms": {"p50": pct(t("target_evm"), 0.5), "p95": pct(t("target_evm"), 0.95),
+                              "max": pct(t("target_evm"), 1.0)},
+            "evm_replay_ms_p95": pct(t("evm_replay"), 0.95),
+            "proof_accounts_max": max((b["geth_context"].get("proof_accounts", 0) for b in geth), default=0),
+        }
     if harm_none_a is not None:
         avoided = harm_none_a - harm_a
         out["victim_harm_avoided_A"] = round(avoided, 6)
@@ -133,4 +148,18 @@ def breakdown(summary: dict) -> str:
     widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
     lines = ["  ".join(c.ljust(w) for c, w in zip(r, widths)) for r in rows]
     lines.insert(1, "  ".join("-" * w for w in widths))
+    return "\n".join(lines)
+
+
+def engine_lines(summary: dict) -> str:
+    """One line per mode that ran layer 2 on geth-replay."""
+    lines = []
+    for mode, s in summary.items():
+        g = s.get("geth_replay")
+        if not g:
+            continue
+        gate, agree, harm, te = g["baseline_gate"], g["verdict_equals_anvil"], g["harm_equals_anvil"], g["target_evm_ms"]
+        lines.append(f"{mode}: geth-replay evaluated {g['evaluated']}, fidelity gate {gate['k']}/{gate['n']}, "
+                     f"verdict = anvil {agree['k']}/{agree['n']}, harm = anvil {harm['k']}/{harm['n']}, "
+                     f"target_evm ms p50/p95/max {te['p50']}/{te['p95']}/{te['max']}")
     return "\n".join(lines)
