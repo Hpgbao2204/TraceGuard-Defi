@@ -85,12 +85,29 @@ def cmd_prepare(_args) -> None:
         print(f"{name}: shadow proof {'present' if ok else 'MISSING'}")
 
 
+def original_runtime(ctx: Path, address: str) -> Path:
+    """The replaced contract's runtime at S0, taken from its verified proof item (or the prestate)."""
+    out = WORK / f"orig-{address}.hex"
+    if not out.is_file():
+        proofs = json.loads((ctx / "prestate_proofs.json").read_text(encoding="utf-8"))
+        items = proofs.get("proofs", proofs) if isinstance(proofs, dict) else proofs
+        code = next((i.get("code") for i in items if str(i.get("address", "")).lower() == address), None)
+        if not code:
+            pre = json.loads((ctx / "prestates.json").read_text(encoding="utf-8"))
+            code = json.dumps(pre).lower().split(f'"{address}": {{', 1)[1].split('"code": "', 1)[1].split('"', 1)[0]
+        out.write_text(code, encoding="utf-8")
+    return out
+
+
 def _args(exe: str, ctx: Path, case: dict, out: Path, replace: str | None, code: Path | None, shadow: str,
-          delegate: bool) -> list[str]:
+          delegate: bool, extra_gas: int) -> list[str]:
     args = [exe, "-context", str(ctx), "-proofs", str(ctx / "prestate_proofs.json"), "-output", str(out), "-lean",
             "-target-index", str(case["tx_index"]), "-mode", "whole-tx"]
     if replace and code:
-        args += ["-target-code-copy", f"{shadow}={replace}", "-target-code", f"{replace}=@{code}"]
+        # The shadow is proven empty at the state block; it receives the replaced contract's original
+        # runtime, and the replaced address receives the wrapper that forwards to it.
+        args += ["-target-code", f"{shadow}=@{original_runtime(ctx, replace)}", "-target-code", f"{replace}=@{code}",
+                 "-target-extra-gas", str(extra_gas)]
     if delegate:
         args += ["-delegate-context"]
     for v in case["victim"]:
@@ -117,7 +134,8 @@ def cmd_run(args) -> None:
                             ("guard", WORK / f"{g['contract']}.hex")):
             out = runs / f"{label}.json"
             proc = subprocess.run(_args(exe, ctx, case, out, g["replace"] if code else None, code, man["shadow"],
-                                        g["delegate_context"]), capture_output=True, text=True, timeout=1800)
+                                        g["delegate_context"], man["extra_gas"]), capture_output=True, text=True,
+                                  timeout=1800)
             if proc.returncode != 0 or not out.is_file():
                 (runs / f"{label}.stderr.txt").write_text(proc.stderr[-20000:], encoding="utf-8")
                 res[label] = {"status": "runner_error", "exit": proc.returncode}
@@ -151,7 +169,8 @@ def main() -> int:
     sub.add_parser("build")
     sub.add_parser("prepare")
     rn = sub.add_parser("run")
-    rn.add_argument("--exe", default=str(ROOT / ".cache" / "framelocal.exe"))
+    rn.add_argument("--exe", default=str(ROOT / ".cache" / "framelocal-gas.exe"),
+                    help="cmd/framelocal built with -target-extra-gas support")
     args = ap.parse_args()
     {"build": cmd_build, "prepare": cmd_prepare, "run": cmd_run}[args.cmd](args)
     return 0

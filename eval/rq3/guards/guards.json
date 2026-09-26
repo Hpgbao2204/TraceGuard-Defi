@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "note": "Root-cause-matched guard restorations on the fixed-20 queue (analyst-specified). Frozen before any run: the guard source, the address it replaces, and the expected revert are fixed here and committed first. Victim/attacker boundaries come from fixed20_cases_amended.json.",
+  "note": "Root-cause-matched guard restorations on the fixed-20 queue (analyst-specified). Frozen before any run: the guard source, the address it replaces, and the expected revert are fixed here and committed first. Victim/attacker boundaries come from fixed20_cases_amended.json. The wrapped runs (identity control and guard) get extra_gas more gas than the signed transaction; the baseline keeps the signed limit.",
   "shadow": "0x000000000000000000000000000000000000f1a1",
   "solc": "0.8.24",
   "evm_version": "paris",
@@ -32,5 +32,6 @@
   },
   "not_measurable": {
     "defihacklabs-silofinance-2025-06-25": "the victim never executes and its harm is a debt position minted on its behalf, not an outflow; Eq. (1) gives no positive loss, so G_pos fails for every intervention"
-  }
+  },
+  "extra_gas": 2000000
 }

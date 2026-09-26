@@ -333,6 +333,7 @@ func applyTarget(
 	rec *frameRecorder,
 	revertClf *revertClassifier,
 	onEVM func(*vm.EVM),
+	extraGas uint64,
 ) *targetRun {
 	hooks, frames, revertData, balanceChanges, logs, opcodes := newInstrumentedHooks(st, scopingMgr, rec, revertClf)
 	blockContext := core.NewEVMBlockContext(header, chainFor(header, chainConfig), &header.Coinbase)
@@ -340,7 +341,24 @@ func applyTarget(
 	if onEVM != nil {
 		onEVM(evm)
 	}
-	receipt, _, err := core.ApplyTransaction(evm, gasPool, st, header, tx)
+	var receipt *types.Receipt
+	var err error
+	if extraGas == 0 {
+		receipt, _, err = core.ApplyTransaction(evm, gasPool, st, header, tx)
+	} else {
+		// Counterfactual gas relaxation: the message keeps the recovered sender, nonce,
+		// value, data and gas price of the signed transaction; only its gas limit grows,
+		// so a code override whose wrapper costs gas cannot run out of gas where the
+		// original transaction did not. The pool grows by the same amount.
+		msg, merr := core.TransactionToMessage(tx, types.MakeSigner(chainConfig, header.Number, header.Time), header.BaseFee)
+		if merr != nil {
+			err = merr
+		} else {
+			msg.GasLimit += extraGas
+			receipt, _, err = core.ApplyTransactionWithEVM(msg, core.NewGasPool(gasPool.Gas()+extraGas), st,
+				header.Number, header.Hash(), header.Time, tx, evm)
+		}
+	}
 	return &targetRun{recorder: rec, receipt: receipt, err: err, frames: frames, revertData: revertData,
 		balanceChanges: balanceChanges, logs: logs, opcodes: opcodes}
 }
@@ -600,6 +618,7 @@ func main() {
 	rho := flag.Float64("rho", defaultThresholds.Rho, "PARTIAL when L_min < L' <= (1-rho)L")
 	shamScale := flag.Float64("sham-scale", 0.5, "sham mode: multiply each 32-byte word of the unrelated read by this factor")
 	delegateContext := flag.Bool("delegate-context", false, "classify a reverting DELEGATECALL frame by its storage context (caller) rather than its code address")
+	targetExtraGas := flag.Uint64("target-extra-gas", 0, "counterfactual runs only: raise the target message's gas limit by this amount (the baseline keeps the signed gas limit)")
 	unscoped := flag.Bool("unscoped", false, "whole-tx ablation: pin the declared -read-site values for every caller (attacker and third parties too), not only for the victim")
 	var probeFlags stringListFlag
 	var victims stringListFlag
@@ -828,7 +847,7 @@ func main() {
 			if frameMode || wholeTxVerdict {
 				baseState := s0Snapshot.Copy()
 				baseRec := newFrameRecorder(baseState, victims, attackers, false, -1, nil)
-				base = applyTarget(baseState, &header, chainConfig, core.NewGasPool(header.GasLimit), &tx, nil, baseRec, nil, nil)
+				base = applyTarget(baseState, &header, chainConfig, core.NewGasPool(header.GasLimit), &tx, nil, baseRec, nil, nil, 0)
 				match := base.err == nil && base.receipt != nil && base.receipt.GasUsed == r.ExpectedGas &&
 					(base.receipt.Status == types.ReceiptStatusSuccessful) == r.ExpectedOK
 				resultOutput.BaselineTargetMatch = &match
@@ -867,7 +886,7 @@ func main() {
 				}
 				cfRevertClf := newRevertClassifier(victims, attackers, nil)
 				cfRevertClf.delegateContext = *delegateContext
-				run = applyTarget(st, &header, chainConfig, gasPool, &tx, scopingMgr, cfRecorder, cfRevertClf, func(e *vm.EVM) { cfEVM = e })
+				run = applyTarget(st, &header, chainConfig, gasPool, &tx, scopingMgr, cfRecorder, cfRevertClf, func(e *vm.EVM) { cfEVM = e }, *targetExtraGas)
 
 				consumed := len(scopingMgr.records) > 0
 				// A runtime-code intervention is consumed when the overridden
@@ -926,7 +945,7 @@ func main() {
 				frameRec := newFrameRecorder(st, victims, attackers, false, -1, nil)
 				revertClf := newRevertClassifier(victims, attackers, nil)
 				revertClf.delegateContext = *delegateContext
-				run = applyTarget(st, &header, chainConfig, gasPool, &tx, scopingMgr, frameRec, revertClf, nil)
+				run = applyTarget(st, &header, chainConfig, gasPool, &tx, scopingMgr, frameRec, revertClf, nil, *targetExtraGas)
 
 				resultOutput.EntryFrames = frameRec.entryFrames
 				// A code or storage override is an intervention too: it is
