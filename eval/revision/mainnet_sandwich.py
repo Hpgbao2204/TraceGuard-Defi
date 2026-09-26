@@ -198,19 +198,35 @@ def classify(payload: dict | None, target: int, pool: str, out_obs: int) -> dict
     return {**rec, "verdict": "CAUSE" if harm >= DELTA * out_cf else "NO_EFFECT", "reason": None}
 
 
+def _touched(rc: dict) -> set[str]:
+    """Contracts that emitted a log and accounts named in log topics."""
+    out = set()
+    for lg in rc.get("logs") or []:
+        out.add(lg["address"].lower())
+        out.update("0x" + t[-40:].lower() for t in (lg.get("topics") or [])[1:])
+    return out
+
+
 def placebo_index(label: dict, ctx: Path) -> int | None:
-    """Latest prefix transaction before the victim that emits no log of the attacked pool and is not the bot's."""
-    receipts = json.loads((ctx / "receipts.json").read_text(encoding="utf-8"))
+    """Latest prefix transaction that is unrelated to the sandwich: its sender is neither the victim nor the
+    bot and sends nothing else before the victim (no nonce chain), and none of the contracts or accounts in
+    its logs appear in the logs of the front-run or the victim (pool, tokens, router, approvals)."""
+    receipts = {r["index"]: r["receipt"] for r in json.loads((ctx / "receipts.json").read_text(encoding="utf-8"))}
     txs = json.loads((ctx / "transactions.json").read_text(encoding="utf-8"))
     txs = txs if isinstance(txs, list) else txs.get("transactions", [])
-    bot = {txs[label["front"]]["from"].lower(), (txs[label["front"]].get("to") or "").lower()}
-    for rec in sorted(receipts, key=lambda r: -r["index"]):
-        i, rc = rec["index"], rec["receipt"]
-        if i >= label["victim"] or i == label["front"]:
+    v, f = label["victim"], label["front"]
+    excluded = {txs[f]["from"].lower(), (txs[f].get("to") or "").lower(), txs[v]["from"].lower(),
+                (txs[v].get("to") or "").lower()} - {""}
+    related = _touched(receipts[f]) | _touched(receipts[v]) | excluded
+    for i in range(v - 1, -1, -1):
+        if i == f:
             continue
-        if any(lg["address"].lower() == label["pool"] for lg in rc.get("logs") or []):
+        sender = txs[i]["from"].lower()
+        if sender in excluded or (txs[i].get("to") or "").lower() in excluded:
             continue
-        if txs[i]["from"].lower() in bot or (txs[i].get("to") or "").lower() in bot:
+        if any(txs[j]["from"].lower() == sender for j in range(i + 1, v + 1)):
+            continue
+        if _touched(receipts[i]) & related:
             continue
         return i
     return None
