@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -21,7 +22,9 @@ from eval.replay_context import provider_identity, redacted_diagnostic
 
 DEFAULT_CHUNK_SIZE = 50
 DEFAULT_CHUNK_ATTEMPTS = 3
-B2_RUNNER = Path(__file__).resolve().parent.parent / "tools" / "geth-replay" / "geth-replay"
+B2_RUNNER = Path(os.environ.get("GETH_REPLAY") or (
+    Path(__file__).resolve().parent.parent / "tools" / "geth-replay"
+    / ("geth-replay.exe" if os.name == "nt" else "geth-replay")))
 BEACON_ROOTS_ADDRESS = "0x000f3df6d732807ef1319fb7b8bb8522d0beac02"
 SYSTEM_ADDRESS = "0xfffffffffffffffffffffffffffffffffffffffe"
 HISTORY_STORAGE_ADDRESS = "0x0000f90827f1c53a10cb7a02335b175320002935"

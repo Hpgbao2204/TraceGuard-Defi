@@ -146,8 +146,9 @@ def cmd_acquire(args) -> None:
             continue
         t0 = time.perf_counter()
         try:
-            acquire_context(archive, trace, tx_hash=lb["victim_hash"], block_number=lb["block"],
-                            tx_index=lb["victim"], out=out, timeout_s=120.0)
+            if not (out / "prestates.json").is_file():
+                acquire_context(archive, trace, tx_hash=lb["victim_hash"], block_number=lb["block"],
+                                tx_index=lb["victim"], out=out, timeout_s=120.0)
             acquire_proofs(out, archive)
             print(f"{lb['victim_hash'][:12]} ok in {time.perf_counter() - t0:.0f} s", flush=True)
         except Exception as exc:  # keep going; the run step reports missing contexts
