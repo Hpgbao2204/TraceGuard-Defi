@@ -9,7 +9,7 @@ Every builder mode faces the same order flow; labels are known because we genera
 ```bash
 # once: foundry for anvil (https://book.getfoundry.sh/getting-started/installation)
 curl -L https://foundry.paradigm.xyz | bash && foundryup
-pip install eth-abi eth-utils pycryptodome requests pytest
+pip install eth-abi eth-utils eth-account pycryptodome requests pytest
 
 # Windows without WSL: unzip foundry_stable_win32_amd64.zip from
 # https://github.com/foundry-rs/foundry/releases and put anvil.exe on PATH (or set ANVIL=C:\path\anvil.exe)
