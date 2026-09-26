@@ -3,6 +3,10 @@
 Every transaction is mined in its own anvil block (automine), so a builder "slot" is a range of
 anvil blocks whose order the builder controls exactly. Gas price and base fee are zero and
 ``--auto-impersonate`` is on, so any address can send without ETH or signing.
+
+Users, searchers and throwaway accounts are derived from private keys, so a bundle can also be
+signed and mined as one block (``mine_signed``) and replayed by geth-replay (``geth_bridge``).
+The chain runs ``--hardfork shanghai`` to match geth-replay's ``-chain-id 31337`` profile.
 """
 from __future__ import annotations
 
@@ -13,10 +17,12 @@ import socket
 import subprocess
 import time
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 import requests
 from eth_abi import decode, encode
+from eth_account import Account
 from eth_utils import keccak, to_checksum_address
 
 ARTIFACTS = Path(__file__).resolve().parent / "contracts" / "artifacts.json"
@@ -84,7 +90,7 @@ class Anvil:
         self.proc = subprocess.Popen(
             [self.binary, "--port", str(self.port), "--silent", "--auto-impersonate",
              "--gas-price", "0", "--block-base-fee-per-gas", "0", "--gas-limit", "1000000000",
-             "--chain-id", "31337"],
+             "--chain-id", "31337", "--hardfork", "shanghai", "--order", "fifo"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         url = f"http://127.0.0.1:{self.port}"
         for _ in range(100):
@@ -138,6 +144,29 @@ class Rpc:
             rc = self.call("eth_getTransactionReceipt", [h])
         return Receipt(int(rc["status"], 16), rc["logs"], int(rc["gasUsed"], 16)) if to else _deploy_receipt(rc)
 
+    def mine_signed(self, txs: list[tuple[str, str, str]]) -> int:
+        """Sign ``(sender, to, data)`` with the senders' simulation keys, mine them as one block in
+        this order, and return its number. Automine is restored afterwards."""
+        nonces: dict[str, int] = {}
+        self.call("evm_setAutomine", [False])
+        try:
+            for frm, to, data in txs:
+                key = sim_key(frm)
+                if frm not in nonces:
+                    nonces[frm] = int(self.call("eth_getTransactionCount", [frm, "latest"]), 16)
+                tx = {"to": to_checksum_address(to), "data": data, "gas": TX_GAS, "gasPrice": 0,
+                      "nonce": nonces[frm], "chainId": CHAIN_ID, "value": 0}
+                nonces[frm] += 1
+                raw = Account.sign_transaction(tx, key).raw_transaction
+                self.call("eth_sendRawTransaction", ["0x" + bytes(raw).hex()])
+            self.call("evm_mine")
+        finally:
+            self.call("evm_setAutomine", [True])
+        block = self.call("eth_getBlockByNumber", ["latest", False])
+        if len(block["transactions"]) != len(txs):
+            raise RuntimeError(f"mined {len(block['transactions'])} of {len(txs)} bundle txs")
+        return int(block["number"], 16)
+
     def eth_call(self, to: str, data: str) -> bytes:
         return bytes.fromhex(self.call("eth_call", [{"to": to, "data": data}, "latest"])[2:])
 
@@ -155,12 +184,36 @@ def _deploy_receipt(rc: dict) -> Receipt:
     return r
 
 
-def addr(i: int, tag: int) -> str:
-    """Deterministic simulation address (tag separates users, bots, throwaway accounts)."""
-    return to_checksum_address(keccak(tag.to_bytes(4, "big") + i.to_bytes(8, "big"))[-20:])
-
-
 TAG_USER, TAG_SEARCHER, TAG_FRESH, TAG_DEPLOYER = 1, 2, 3, 9
+CHAIN_ID = 31337
+_KEYS: dict[str, bytes] = {}
+
+
+def addr(i: int, tag: int) -> str:
+    """Deterministic simulation address (tag separates users, bots, throwaway accounts).
+
+    Every account except the deployer is the address of the private key keccak(tag, i), so its
+    transactions can be signed for geth-replay. The deployer keeps its hash-derived address (it
+    never sends a bundle transaction), which keeps token and pool addresses, and so token0/token1
+    order, unchanged."""
+    seed = keccak(tag.to_bytes(4, "big") + i.to_bytes(8, "big"))
+    if tag == TAG_DEPLOYER:
+        return to_checksum_address(seed[-20:])
+    a = _key_address(seed)
+    _KEYS[a.lower()] = seed
+    return a
+
+
+@lru_cache(maxsize=None)
+def _key_address(key: bytes) -> str:
+    return Account.from_key(key).address
+
+
+def sim_key(address: str) -> bytes:
+    try:
+        return _KEYS[address.lower()]
+    except KeyError:
+        raise KeyError(f"{address} is not a key-derived simulation account") from None
 N_USERS, N_SEARCHERS = 24, 24
 E18 = 10**18
 

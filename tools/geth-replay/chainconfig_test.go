@@ -48,3 +48,22 @@ func TestGetChainConfigRejectsUnsupportedChain(t *testing.T) {
 		t.Fatal("unsupported chain profile must fail closed")
 	}
 }
+
+func TestAnvilSimProfileIsShanghaiOnly(t *testing.T) {
+	config, err := getChainConfig(anvilSimChainID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	number := big.NewInt(5)
+	rules := config.Rules(number, true, 1_700_000_000)
+	if !rules.IsLondon || !rules.IsMerge || !rules.IsShanghai || rules.IsCancun || rules.IsPrague {
+		t.Fatalf("unexpected rules: %+v", rules)
+	}
+	if config.ChainID.Uint64() != 31337 {
+		t.Fatalf("chain id %s", config.ChainID)
+	}
+	profile, _ := profileForChainID(anvilSimChainID)
+	if !profile.Experimental {
+		t.Fatal("anvil profile must be marked experimental")
+	}
+}

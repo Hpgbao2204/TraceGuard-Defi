@@ -95,6 +95,7 @@ Runner mới `eval/rq3/run_fixed20.py`:
 4. **Baseline heuristic hình dạng:** chặn mọi mẫu front-victim-back. So tỉ lệ chặn nhầm với TraceGuard.
 5. Chạy nhiều seed (ví dụ 5 seed), báo trung bình và CI.
 6. Latency trong mô phỏng là thời gian RPC của anvil, **không dùng cho claim latency**. Claim latency lấy từ W1.
+7. **Layer 2 chạy trên engine của bài** (`--l2-engine geth`, `eval/mev_sim/geth_bridge.py`): mỗi bundle bị layer 1 gắn cờ được đào thành một block anvil, xuất thành context B2 có proof EIP-1186, rồi `geth-replay -chain-id 31337 -lean` chạy hai lần: baseline phải qua `acceptance_gate` (gate fidelity RQ2), sau đó `-drop-tx` (M1) ra verdict. Số RQ4 trong bài hiện lấy từ engine anvil (5 seed × 200 slot); chế độ geth là kiểm chứng chéo (seed 7: verdict và harm trùng 605/605). Layer 1 là bộ lọc mức bundle, **không phải** screener 3 view của RQ1; bài phải nói rõ như vậy.
 
 ### W4: RQ4 phần mainnet nhỏ (cloud viết code, chủ repo chạy)
 
@@ -152,6 +153,6 @@ Runner mới `eval/rq3/run_fixed20.py`:
 | M1 `-drop-tx` | xong, đã merge (PR #1) | Chạy trên 3 context thật: comparable đúng; exchangeissuance bị nonce gap nên ra incomparable, đúng mong đợi |
 | W1 `-lean` | xong (PR #2) | Đo trên 3 context thật (Windows): base-lean `acceptance_gate=true` 3/3; output 0.07–0.15 MB (full-trace 490–662 MB); `target_evm` lean 6.1–10.6 ms, `evm_replay` 12.9–17.7 ms (full-trace 1543–1625 ms); `context_load` 27–50 ms đo riêng. Số latency giả định builder đã có state trong bộ nhớ. |
 | W2 RQ3 | PR #5 mở | v2 (970ce98): 7/20 có factor; can thiệp theo quy tắc khẳng định 6/20 CAUSE_BLOCKED; unscoped revert bên thứ ba 4/7, scoped 1/7. Bảng rq3_final (chủ repo đọc): cả 6 ca chặn nhiều khả năng là artifact do ghim `balanceOf` (V là pair Uniswap V2, revert `INSUFFICIENT_INPUT_AMOUNT`/`mint`), nên 0/20 bằng chứng mạnh. Đang làm: chẩn đoán 7 ca, factor v3, positive control Euler |
-| W3 RQ4 mô phỏng | PR #3, đã rebase; xong mục 1, 2 | seed 7, 200 slot, tg_closed: EXCLUDE-on-CAUSE 197/227 sandwich, 0/409 benign; DEFAULT (ordering confound) 30 sandwich decoy + 7 benign (victim revert khi bỏ front-run), builder fail-closed nên cả 37 bị loại. Mục 3, 4 đã có số theo từng kiểu; còn mục 5 (nhiều seed). Latency là RPC anvil, không dùng cho claim; chưa có pool V3 |
+| W3 RQ4 mô phỏng | PR #3, đã rebase; xong mục 1, 2 | seed 7, 200 slot, tg_closed: EXCLUDE-on-CAUSE 197/227 sandwich, 0/409 benign; DEFAULT (ordering confound) 30 sandwich decoy + 7 benign (victim revert khi bỏ front-run), builder fail-closed nên cả 37 bị loại. Mục 3, 4 đã có số theo từng kiểu; còn mục 5 (nhiều seed). Latency là RPC anvil, không dùng cho claim; chưa có pool V3. Layer 2 đã nối vào geth-replay (`--l2-engine geth`): seed 7, 200 slot (cloud): tg_open + tg_closed 605/605 bundle qua gate fidelity, verdict và harm trùng engine anvil 605/605, bảng chặn giữ nguyên (tg_closed 227/227 sandwich, 7/409 benign), `target_evm` p95 1.7 ms; cần chạy lại 5 seed bằng engine này |
 | W4 RQ4 mainnet | chưa bắt đầu | cần RPC, chạy ở local |
 | W5 hình | chưa bắt đầu | |

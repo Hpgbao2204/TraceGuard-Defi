@@ -145,8 +145,23 @@ def main() -> None:
     style()
     args.out.mkdir(parents=True, exist_ok=True)
     tab = table(runs)
-    args.table.write_text(json.dumps({"seeds": [r["config"]["seed"] for r in runs], "modes": tab}, indent=1),
-                          encoding="utf-8")
+    engines = sorted({r["config"].get("l2_engine", "anvil") for r in runs})
+    geth = {}
+    for r in runs:  # pooled layer-2-on-geth-replay checks (only runs with --l2-engine geth)
+        for m, s in r["summary"].items():
+            g = s.get("geth_replay")
+            if g:
+                acc = geth.setdefault(m, {"evaluated": 0, "gate": 0, "verdict_equals_anvil": 0, "harm_equals_anvil": 0})
+                acc["evaluated"] += g["evaluated"]
+                acc["gate"] += g["baseline_gate"]["k"]
+                acc["verdict_equals_anvil"] += g["verdict_equals_anvil"]["k"]
+                acc["harm_equals_anvil"] += g["harm_equals_anvil"]["k"]
+    args.table.write_text(json.dumps({"seeds": [r["config"]["seed"] for r in runs], "l2_engine": engines,
+                                      "geth_replay": geth, "modes": tab}, indent=1), encoding="utf-8")
+    print(f"layer-2 engine: {', '.join(engines)}")
+    for m, g in geth.items():
+        print(f"{m:12s} geth-replay gate {g['gate']}/{g['evaluated']} verdict=anvil "
+              f"{g['verdict_equals_anvil']}/{g['evaluated']} harm=anvil {g['harm_equals_anvil']}/{g['evaluated']}")
     panel_a(args.out, runs)
     panel_b(args.out, runs)
     for m, v in tab.items():
