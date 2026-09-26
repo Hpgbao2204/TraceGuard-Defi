@@ -79,8 +79,18 @@ def cmd_prepare(_args) -> None:
         if not dst.exists():
             shutil.copytree(CONTEXTS / name, dst)
         acquire_proofs(dst, archive, include_synthetic_shadows=True)
+        # Re-acquisition covers the traced prestate only; keep every item of the frozen context's proof set
+        # (e.g. a DELEGATECALL implementation), all verified against the same state root.
         proofs = json.loads((dst / "prestate_proofs.json").read_text(encoding="utf-8"))
-        items = proofs.get("proofs", proofs) if isinstance(proofs, dict) else proofs
+        frozen = json.loads((CONTEXTS / name / "prestate_proofs.json").read_text(encoding="utf-8"))
+        have = {str(i.get("address", "")).lower() for i in proofs["proofs"]}
+        merged = [i for i in frozen["proofs"] if str(i.get("address", "")).lower() not in have]
+        if merged:
+            if frozen.get("header", {}).get("stateRoot") != proofs.get("header", {}).get("stateRoot"):
+                raise SystemExit(f"{name}: frozen proofs are for a different state root")
+            proofs["proofs"] += merged
+            (dst / "prestate_proofs.json").write_text(json.dumps(proofs), encoding="utf-8")
+        items = proofs["proofs"]
         ok = any(str(p.get("address", "")).lower() == shadow for p in items)
         print(f"{name}: shadow proof {'present' if ok else 'MISSING'}")
 

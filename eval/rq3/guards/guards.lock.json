@@ -11,9 +11,9 @@
     },
     "MureSignerGuard": {
       "source": "MureSignerGuard.sol",
-      "source_sha256": "c9060aaaf827f513d7f0afb47b4e508cf2272004e3aaee217a0f746d7cab56e1",
-      "runtime_sha256": "dc5e078fe362723adfad0e4e14ada0ffe3c90d70a1e3720307d8564b82a72677",
-      "runtime_bytes": 335
+      "source_sha256": "a0aa72e16836eac91a800aaeda54e6f0eed99347bde1fbb59d27ed9af33d4622",
+      "runtime_sha256": "55468d4b03872d185d25e1bc0d733835527720227dcb655b2ad0448118047159",
+      "runtime_bytes": 693
     },
     "RnsPayExchangeGuard": {
       "source": "RnsPayExchangeGuard.sol",

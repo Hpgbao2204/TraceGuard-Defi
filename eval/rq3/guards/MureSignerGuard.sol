@@ -3,23 +3,33 @@ pragma solidity 0.8.24;
 
 import "./ShadowForward.sol";
 
-/// @notice MureDistribution (proxy 0x36508371..., implementation 0xec9c8e3b..., May 2026). `distribute`
-/// takes a distribution record, a caller-supplied signer and a signature, validates the signature against
-/// that signer (ERC-1271 for contracts), and then pulls `record.from`'s tokens by transferFrom. The signer
-/// is never tied to the account whose tokens move, so an attacker-deployed signer that accepts any
-/// signature authorizes a transfer from any holder that approved the distribution contract. The restored
-/// check requires the signer to be the holder whose tokens are distributed. The implementation is not
-/// source-verified; the argument layout is decoded from the attack calldata: distribute(record, signer,
-/// signature) with record = (token, operator, from, to, name, amount, deadline).
+interface IAccessControlLike {
+    function hasRole(bytes32 role, address account) external view returns (bool);
+}
+
+/// @notice MureDistribution (proxy 0x36508371..., implementation 0xec9c8e3b9cbe..., May 2026; verified source).
+/// `distribute(record, [to,] signature)` reads the signer from `PoolMetadata(record.source).poolState(...)`,
+/// verifies the signature against that signer, and then moves `record.amount` of `record.token` from
+/// `record.repository` by transferFrom. `record.source` is supplied by the caller and only checked for
+/// ERC-165 support, so an attacker-deployed source names itself as signer and accepts any signature
+/// (DeFiHackLabs: fake ERC-1271 signer). The contract already ties sources to their operators in
+/// `moveDistribution` (`validManager`: the source's IAccessControl must grant POOL_OPERATOR_ROLE); the
+/// restored check applies the same rule to `distribute`: the account whose tokens move must be a pool
+/// operator of the source that supplies the signer.
+/// record = (token, source, repository, depositor, poolName, amount, deadline).
 contract MureSignerGuard is ShadowForward {
-    bytes4 internal constant DISTRIBUTE = 0x5d4f9ff8;
+    bytes4 internal constant DISTRIBUTE_TO = 0x5d4f9ff8; // distribute(record, address to, bytes signature)
+    bytes4 internal constant DISTRIBUTE = 0xb61549c0; // distribute(record, bytes signature)
+    bytes32 internal constant POOL_OPERATOR_ROLE = keccak256("POOL_OPERATOR");
 
     fallback() external payable {
-        if (msg.sig == DISTRIBUTE) {
+        if (msg.sig == DISTRIBUTE_TO || msg.sig == DISTRIBUTE) {
             uint256 record = 4 + _word(4);
-            address signer = address(uint160(_word(4 + 32)));
-            address from = address(uint160(_word(record + 2 * 32)));
-            require(signer == from, "MureDistribution: signer not authorized");
+            address source = address(uint160(_word(record + 32)));
+            address repository = address(uint160(_word(record + 2 * 32)));
+            (bool ok, bytes memory ret) = source.staticcall(
+                abi.encodeCall(IAccessControlLike.hasRole, (POOL_OPERATOR_ROLE, repository)));
+            require(ok && ret.length >= 32 && abi.decode(ret, (bool)), "MureDistribution: unauthorized source");
         }
         _forward();
     }
