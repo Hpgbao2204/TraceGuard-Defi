@@ -14,7 +14,8 @@ Alkimiya (block 22146340, tx index 0, Mar. 2025, inside the corpus period): rest
 bound on minted shares in SilicaPools by replacing its runtime with the source-compiled patch
 (``eval/fixtures/alkimiya_patched_runtime_historical_immutables.txt``). Expected: the counterfactual
 reverts in SilicaPools with the custom error ``SilicaPools__SharesTooLarge()`` (selector 0x5cb35d8f)
-after the patched code is entered, before the WBTC outflow. The context's ``ancestors.json`` can be
+after the patched code is entered, before the WBTC outflow. The control is judged whole-tx, because the
+code override also acts outside the payout harm frame. The context's ``ancestors.json`` can be
 re-acquired with ``python -m eval.revision.refetch_ancestors <context>``.
 
 bZx (Feb 2020, flash suppression) is not runnable yet: no script in this repo
@@ -134,9 +135,12 @@ def run_alkimiya(exe: str, out_dir: Path, timeout: int) -> dict[str, Any]:
                       "guard_reached": data.startswith(ALKIMIYA["expected_selector"]),
                       "token_losses": rec.get("token_losses")}
     wt, fl = res.get("whole-tx") or {}, res.get("frame-local") or {}
-    res["passed"] = all([(res.get("baseline") or {}).get("replay_gate"),
-                         wt.get("verdict") == "CAUSE_BLOCKED" and wt.get("guard_reached"),
-                         fl.get("verdict") == "CAUSE_BLOCKED" and fl.get("guard_reached")])
+    # A code override is not frame-scoped: the restored guard fires in the mint frame, before the payout
+    # harm frame, so frame-local replay reports target_frame_not_reached. Like Euler, the control is judged
+    # on the whole-transaction run; the frame-local record is kept for completeness.
+    res["passed"] = bool((res.get("baseline") or {}).get("replay_gate")
+                         and wt.get("verdict") == "CAUSE_BLOCKED" and wt.get("origin_class") == "victim"
+                         and wt.get("guard_reached"))
     return res
 
 
