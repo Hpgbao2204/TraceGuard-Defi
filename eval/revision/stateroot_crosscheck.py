@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTEXTS = ROOT / "eval" / "results" / "m4" / "b2-contexts-fresh"
-DEFAULT_RPCS = ("https://ethereum-rpc.publicnode.com", "https://eth.llamarpc.com", "https://rpc.flashbots.net")
+DEFAULT_RPCS = ("https://rpc.flashbots.net", "https://ethereum-rpc.publicnode.com", "https://eth.llamarpc.com")
 
 
 def header(rpc: str, number: int) -> dict:

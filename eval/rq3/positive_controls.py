@@ -10,6 +10,13 @@ guard rule of ``eval.rq3.final_table`` classifies it as ``security``.
 Euler dispatches to modules by DELEGATECALL, so the run classifies the reverting
 frame by its storage context (``-delegate-context``); the fixed-20 runs do not.
 
+Alkimiya (block 22146340, tx index 0, Mar. 2025, inside the corpus period): restore the missing upper
+bound on minted shares in SilicaPools by replacing its runtime with the source-compiled patch
+(``eval/fixtures/alkimiya_patched_runtime_historical_immutables.txt``). Expected: the counterfactual
+reverts in SilicaPools with the custom error ``SilicaPools__SharesTooLarge()`` (selector 0x5cb35d8f)
+after the patched code is entered, before the WBTC outflow. The context's ``ancestors.json`` can be
+re-acquired with ``python -m eval.revision.refetch_ancestors <context>``.
+
 bZx (Feb 2020, flash suppression) is not runnable yet: no script in this repo
 builds its B2 context (see ``BZX_NEEDS``).
 
@@ -44,6 +51,18 @@ EULER = {
     "expected_message": "e/collateral-violation",
 }
 
+ALKIMIYA = {
+    "name": "alkimiya-22146340",
+    "context": ROOT / "eval" / "results" / "m6" / "dependency-contexts" / "alkimiya",
+    "tx_hash": "0x9b9a6dd05526a8a4b40e5e1a74a25df6ecccae6ee7bf045911ad89a1dd3f0814",
+    "tx_index": 0,
+    "victim": ["0xf3f84ce038442ae4c4dcb6a8ca8bacd7f28c9bde"],  # SilicaPools, the WBTC payer
+    "attacker": [],
+    "override": "0xf3f84ce038442ae4c4dcb6a8ca8bacd7f28c9bde",
+    "artifact": ROOT / "eval" / "fixtures" / "alkimiya_patched_runtime_historical_immutables.txt",
+    "expected_selector": "0x5cb35d8f",  # SilicaPools__SharesTooLarge()
+}
+
 BZX_NEEDS = [
     "a B2 context for tx 0xb5c8bd9430b6cc87a0e2fe110ece6bf527fa4f170a4bc8cd032f768fc5219838 "
     "(block 9484688, tx index 28, 28 prior txs in the block): block.json, transactions.json, receipts, "
@@ -69,6 +88,56 @@ def euler_args(exe: str, context: Path, out: Path) -> list[str]:
     for a in EULER["attacker"]:
         args += ["-attacker", a]
     return args
+
+
+def control_args(ctl: dict[str, Any], exe: str, context: Path, out: Path, mode: str,
+                 patched: bool) -> list[str]:
+    args = [exe, "-context", str(context), "-output", str(out), "-lean", "-target-index", str(ctl["tx_index"]),
+            "-mode", mode]
+    if patched:
+        args += ["-target-code", f"{ctl['override']}=@{ctl['artifact']}"]
+    proofs = context / "prestate_proofs.json"
+    if proofs.is_file():
+        args += ["-proofs", str(proofs)]
+    for v in ctl["victim"]:
+        args += ["-victim", v]
+    for a in ctl["attacker"]:
+        args += ["-attacker", a]
+    return args
+
+
+def run_alkimiya(exe: str, out_dir: Path, timeout: int) -> dict[str, Any]:
+    """Baseline, then the patched guard whole-tx and frame-local; judged on revert site and selector."""
+    ctx = ALKIMIYA["context"]
+    bad = check_context(ctx, {"tx_index": ALKIMIYA["tx_index"], "tx_hash": ALKIMIYA["tx_hash"]})
+    if bad:
+        return {"status": "missing_context", "detail": bad, "context": str(ctx)}
+    if not (ctx / "ancestors.json").is_file():
+        return {"status": "missing_ancestors", "context": str(ctx)}
+    res: dict[str, Any] = {"status": "ran", "artifact_sha256": sha256_file(ALKIMIYA["artifact"])}
+    for label, mode, patched in (("baseline", "whole-tx", False), ("whole-tx", "whole-tx", True),
+                                 ("frame-local", "frame-local", True)):
+        out = out_dir / f"alkimiya.{label}.json"
+        proc = subprocess.run(control_args(ALKIMIYA, exe, ctx, out, mode, patched), capture_output=True,
+                              text=True, timeout=timeout)
+        if proc.returncode != 0:
+            (out_dir / f"alkimiya.{label}.stderr.txt").write_text(proc.stderr[-20000:], encoding="utf-8")
+            res[label] = {"status": "runner_error", "exit": proc.returncode}
+            continue
+        payload = json.loads(out.read_text(encoding="utf-8"))
+        rec = interpret(payload, mode)
+        rv = rec.get("revert") or {}
+        data = (rv.get("revert_data") or rv.get("revert_message") or "").lower()
+        res[label] = {"verdict": rec.get("verdict"), "reason": rec.get("reason"), "replay_gate": rec.get("replay_gate"),
+                      "acceptance_gate": payload.get("acceptance_gate"), "origin": rv.get("origin_address"),
+                      "origin_class": rec.get("revert_origin"), "revert_data": data[:74],
+                      "guard_reached": data.startswith(ALKIMIYA["expected_selector"]),
+                      "token_losses": rec.get("token_losses")}
+    wt, fl = res.get("whole-tx") or {}, res.get("frame-local") or {}
+    res["passed"] = all([(res.get("baseline") or {}).get("replay_gate"),
+                         wt.get("verdict") == "CAUSE_BLOCKED" and wt.get("guard_reached"),
+                         fl.get("verdict") == "CAUSE_BLOCKED" and fl.get("guard_reached")])
+    return res
 
 
 def judge(rec: dict[str, Any]) -> dict[str, Any]:
@@ -112,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
             rec = interpret(payload, "whole-tx")
             report["euler"] = {"status": "ran", "baseline_target_match": payload.get("baseline_target_match"),
                                **judge(rec)}
+    report["alkimiya"] = run_alkimiya(args.exe, args.out, args.timeout)
     (args.out / "controls.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     e = report["euler"]
     print(f"euler: {e.get('status')}  passed={e.get('passed')}  verdict={e.get('verdict')} {e.get('reason') or ''}")
@@ -121,6 +191,11 @@ def main(argv: list[str] | None = None) -> int:
               f"context={e.get('origin_context')} guard={(e.get('guard') or {}).get('type')}")
     elif e.get("detail"):
         print(f"  {e['detail']} at {e.get('context')}")
+    a = report["alkimiya"]
+    print(f"alkimiya: {a.get('status')}  passed={a.get('passed')}")
+    for label in ("baseline", "whole-tx", "frame-local"):
+        if label in a:
+            print(f"  {label}: {a[label]}")
     print("bzx: not runnable in this repo yet; needs:")
     for n in BZX_NEEDS:
         print(f"  - {n}")
