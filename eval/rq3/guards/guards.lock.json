@@ -1,0 +1,31 @@
+{
+  "solc": "0.8.24+commit.e11b9ed9.Windows.msvc",
+  "evm_version": "paris",
+  "optimizer_runs": 200,
+  "runtimes": {
+    "IdentityForward": {
+      "source": "IdentityForward.sol",
+      "source_sha256": "84fe934305e246c2700063caf3f1ba5e66e8bfd4e60da58146e0aad6d0fb6396",
+      "runtime_sha256": "a207c35436a7331fcefc170846ad45b1ed34075ccf5b081d0c65844fe06f95b9",
+      "runtime_bytes": 103
+    },
+    "MureSignerGuard": {
+      "source": "MureSignerGuard.sol",
+      "source_sha256": "c9060aaaf827f513d7f0afb47b4e508cf2272004e3aaee217a0f746d7cab56e1",
+      "runtime_sha256": "dc5e078fe362723adfad0e4e14ada0ffe3c90d70a1e3720307d8564b82a72677",
+      "runtime_bytes": 335
+    },
+    "RnsPayExchangeGuard": {
+      "source": "RnsPayExchangeGuard.sol",
+      "source_sha256": "04161947d08cd1f184a0ef86295e081752ef00505d8410e885141e59d8d04fa7",
+      "runtime_sha256": "b2a39dcf6e62dd7e229dbb7fa18296a3b3da6c2638d4394962793e32d93a7d6e",
+      "runtime_bytes": 370
+    },
+    "VethFactoryOwnerGuard": {
+      "source": "VethFactoryOwnerGuard.sol",
+      "source_sha256": "4a8efcf2a8397748df9cb8b0dbe452642d7698a27909649e5c36a2f701d76cbc",
+      "runtime_sha256": "e2957d7f9bc9aa4712f23c39c23e2b90b6e9dbd85fe4d4f07eff9892a878e27d",
+      "runtime_bytes": 378
+    }
+  }
+}

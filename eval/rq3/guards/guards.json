@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "note": "Root-cause-matched guard restorations on the fixed-20 queue (analyst-specified). Frozen before any run: the guard source, the address it replaces, and the expected revert are fixed here and committed first. Victim/attacker boundaries come from fixed20_cases_amended.json.",
+  "shadow": "0x000000000000000000000000000000000000f1a1",
+  "solc": "0.8.24",
+  "evm_version": "paris",
+  "cases": {
+    "defihacklabs-rnspay-2025-03-06": {
+      "source": "RnsPayExchangeGuard.sol",
+      "contract": "RnsPayExchangeGuard",
+      "replace": "0x4c7f92d77b331ea74092e2e347c9fd026faa1c3f",
+      "delegate_context": false,
+      "expected_revert": "RnsPay: exchange not allowed",
+      "root_cause": "pay() calls a caller-supplied exchange target without checking the owner-managed allowlist `exchanges` (DeFiHackLabs: arbitrary external call abusing victim approvals)"
+    },
+    "defihacklabs-muredistribution-2026-05-21": {
+      "source": "MureSignerGuard.sol",
+      "contract": "MureSignerGuard",
+      "replace": "0xec9c8e3b9c3fb0a3ffb2e0dd36c2abc8a46fb21e",
+      "delegate_context": true,
+      "expected_revert": "MureDistribution: signer not authorized",
+      "root_cause": "distribute() accepts a caller-supplied signer and signature that are not tied to the holder whose tokens move (DeFiHackLabs: fake ERC-1271 signer)"
+    },
+    "defihacklabs-veth-2024-11-14": {
+      "source": "VethFactoryOwnerGuard.sol",
+      "contract": "VethFactoryOwnerGuard",
+      "replace": "0x62f250cf7021e1cf76c765dec8ec623fe173a1b5",
+      "delegate_context": false,
+      "expected_revert": "Ownable: caller is not the owner",
+      "root_cause": "a privileged factory function (0x6c0472da) that takes a vETH loan and adds liquidity is externally callable (DeFiHackLabs: privileged Factory function callable by anyone)"
+    }
+  },
+  "not_measurable": {
+    "defihacklabs-silofinance-2025-06-25": "the victim never executes and its harm is a debt position minted on its behalf, not an outflow; Eq. (1) gives no positive loss, so G_pos fails for every intervention"
+  }
+}

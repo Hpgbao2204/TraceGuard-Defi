@@ -1,0 +1,817 @@
+{
+  "schema": 1,
+  "source": "mechanical amendment of fixed20_cases.json; see eval/rq3/boundary_amendment.py",
+  "frozen_manifest": "fixed20_cases.json",
+  "window_blocks": 7200,
+  "rule": "M1  the frozen attacker addresses and ``tx.from``;\n  M2  every contract created inside the target transaction T (CREATE/CREATE2 frames);\n  M3  every contract in ``{tx.to} \u222a V`` deployed within W = 7,200 blocks (about one day) before the attack\n      block in a block that contains a transaction sent by ``tx.from``;\n  M4  ``tx.to``, unless it was deployed more than W blocks before the attack (an established contract that\n      the attacker called directly, e.g. a drained pool, is not the attacker's entry contract).\nVictim boundary V' = (V \\ M) \u222a O \u222a P \u222a F\n  O   outflow victims: every account o \u2209 M, o \u2260 0x0, o \u2260 WETH (an unwrap pays out native ETH but is not a\n      loss), with a net outflow of at least one asset in T (ERC-20 Transfer logs and native value\n      transfers) and a net inflow of none;\n  P   allowance victims: for every successful ``transferFrom(o, ., .)`` CALL in T made by a contract c with\n      o \u2209 M, c \u2209 M, o \u2260 c, the owner o, and the spender c if c was called by an address in M;\n  F   protocol contracts: every contract c \u2209 M called by an address in M that had code before T and was\n      deployed by the same externally owned account as a contract already in (V \\ M) \u222a O \u222a P.",
+  "cases": {
+    "defihacklabs-alkemiearn-2026-03-10": {
+      "victim": [
+        "0x4822d9172e5b76b9db37b75f5552f9988f98a888",
+        "0x8125afd067094cd573255f82795339b9fe2a40ab"
+      ],
+      "attacker": [
+        "0x0ed1c01b8420a965d7bd2374db02896464c91cd7",
+        "0xe408b52aefb27a2fb4f1cd760a76daa4bf23794b"
+      ],
+      "tx_index": 3,
+      "block": 24626979,
+      "tx_hash": "0xa17001eb39f867b8bed850de9107018a2d2503f95f15e4dceb7d68fff5ef6d9d",
+      "amendment": {
+        "removed_from_v": {
+          "0xe408b52aefb27a2fb4f1cd760a76daa4bf23794b": "M4 tx.to without code before the attack"
+        },
+        "added_to_v": {
+          "0x4822d9172e5b76b9db37b75f5552f9988f98a888": "O net outflow, no net inflow",
+          "0x8125afd067094cd573255f82795339b9fe2a40ab": "O net outflow, no net inflow"
+        },
+        "tx_to": "0xe408b52aefb27a2fb4f1cd760a76daa4bf23794b",
+        "created_in_t": [],
+        "deployment_blocks": {
+          "0xe408b52aefb27a2fb4f1cd760a76daa4bf23794b": null
+        },
+        "changed": true
+      }
+    },
+    "defihacklabs-erc20transfer-2024-10-22": {
+      "victim": [
+        "0x3dadf003afcc96d404041d8ae711b94f8c68c6a5",
+        "0x6980a47bee930a4584b09ee79ebe46484fbdbdd0"
+      ],
+      "attacker": [
+        "0xfde0d1575ed8e06fbf36256bcdfa1f359281455a"
+      ],
+      "tx_index": 0,
+      "block": 21019772,
+      "tx_hash": "0x7f2540af4a1f7b0172a46f5539ebf943dd5418422e4faa8150d3ae5337e92172",
+      "amendment": {
+        "removed_from_v": {},
+        "added_to_v": {
+          "0x3dadf003afcc96d404041d8ae711b94f8c68c6a5": "O net outflow, no net inflow"
+        },
+        "tx_to": "0x6980a47bee930a4584b09ee79ebe46484fbdbdd0",
+        "created_in_t": [],
+        "deployment_blocks": {
+          "0x6980a47bee930a4584b09ee79ebe46484fbdbdd0": 18036360
+        },
+        "changed": true
+      }
+    },
+    "defihacklabs-exchangeissuance-index-coop-2026-07-30": {
+      "victim": [
+        "0xc8c85a3b4d03fb3451e7248ff94f780c92f884fd"
+      ],
+      "attacker": [
+        "0x0736930ae35eafefa789f11edf41d7b799e7c99d",
+        "0x388a3da33825e1f44ac71b8fd543523cdf994802",
+        "0x757da0158f227fc3be93824fc3ecfddae4e331aa",
+        "0x8f449d85f728c1dd6596880ba28a0b80b6a26c58",
+        "0xb6f514c2791e4c3cb91018ca295f169cab1519b8",
+        "0xf7c2d0a2bf81bf803ed6e1d97c89fe3b30b06948"
+      ],
+      "tx_index": 2,
+      "block": 25644621,
+      "tx_hash": "0x7f45428df558fba1d19ab115effef8ecd1e6e05b491f02202b0815e47b8d658b",
+      "amendment": {
+        "removed_from_v": {
+          "0x388a3da33825e1f44ac71b8fd543523cdf994802": "M4 tx.to without code before the attack"
+        },
+        "added_to_v": {
+          "0xc8c85a3b4d03fb3451e7248ff94f780c92f884fd": "O net outflow, no net inflow"
+        },
+        "tx_to": "0x388a3da33825e1f44ac71b8fd543523cdf994802",
+        "created_in_t": [
+          "0x757da0158f227fc3be93824fc3ecfddae4e331aa",
+          "0x8f449d85f728c1dd6596880ba28a0b80b6a26c58",
+          "0xb6f514c2791e4c3cb91018ca295f169cab1519b8",
+          "0xf7c2d0a2bf81bf803ed6e1d97c89fe3b30b06948"
+        ],
+        "deployment_blocks": {
+          "0x388a3da33825e1f44ac71b8fd543523cdf994802": null
+        },
+        "changed": true
+      }
+    },
+    "defihacklabs-fixedtokenbswap-2025-06-15": {
+      "victim": [
+        "0x746b3d7e9953cdaa8c4d4fd3ee24fe133f459f32"
+      ],
+      "attacker": [
+        "0x0027fd5e42db8d1c7c15fd390cc0989cd882ca29",
+        "0x0afa532411a90cc857bb4002de2b36abffc0ade1",
+        "0x1924d02b3d17eeee98f57e99cc9afb947ac23f4d",
+        "0x1aee773799502977b20bc3e9943101a74427cb81",
+        "0x239feb014ee1b97180efa1c854b2080efe9930fe",
+        "0x427e02957e7c8fcae82914a4ad2883ba2aca0a4a",
+        "0x4470a75caa953c441d486039468b4523a9a14023",
+        "0x46eaf67c1fcf5382ee0c248fc61bf367b5e31f39",
+        "0x494743a68e4d59dd35d8f68611a40b547a58d7ec",
+        "0x5a7530880b2d8b0324024837580ceea1c15f6d78",
+        "0x5bef25eb78185d10143fbfb6304d0dd12b756d49",
+        "0x5cf907835b8ba3bb918cca3b76a0478dffba4bb8",
+        "0x5ff8645bbc6c8b4390aa228a3e8bf08240f333b4",
+        "0x621b34152d31e3b159da13f4e08e7a5a45d81082",
+        "0x6370bcc058088e6b3d4ecfa02fe1d679a709b089",
+        "0x76c611e34f9ca7aaad50382ada61740ec365d9f2",
+        "0x775ab45b6a726a96c3fe2cdf2e475dd00ff5c7be",
+        "0x77abad8a0ec136c9f0882648ef35c94168e3e8d3",
+        "0x7e2dbc25ba998f416344ccf7ca6ce36e7aa8cc6d",
+        "0x800f1a768b055e5f5d1c99df530396bc7523eb73",
+        "0x81ff9cd2ee35782871491d2d880d3a89e87caf44",
+        "0x820402aa86145d0c576b0756f49c37f730124666",
+        "0x84b5b97fe13c261c597c226c155a25f90b77754d",
+        "0x884281183a5582c5d306e6d7ec7553ceb0b08782",
+        "0x8c28998dbe0da16b652b979de62824607932c42e",
+        "0x8c94773be745d8b7e9c757bb8ad725c2885e2605",
+        "0x8e84dc78d723037202c549528790d1172c8a5546",
+        "0x905f4b4afa95e4fe427beae13038d6fa8690fa2b",
+        "0x913fec537cbb406b321f62e70bffa0e18f232037",
+        "0x91cfe65b11d8c90e117b51b763e1f80300e48c3e",
+        "0x920aeb2bd27126f904fa13b814cecfd80844d1a4",
+        "0x9914ac237d831dd7708861b154425d0dec1530c7",
+        "0x9f4b615446ecb14f308a0b557beff47e3ebb68ed",
+        "0xa2becc4df1f945bccea7a7ce4e383542e96cc482",
+        "0xade2d7d87769484fe092456d06d8ca7c2d308996",
+        "0xb24aa0d6ad72d312be3bf2df024571609ee9790e",
+        "0xb6b243981baf767e674e45e9e1075977a78bee5b",
+        "0xb960773e6a25ff9696fef0587cdd181af50090fa",
+        "0xbdfef5f965a65916f03c986ecd88184f840c3607",
+        "0xbe34e3dfec25e3d4879b7e22ee1f6bdee30d6a8a",
+        "0xc0e7618ac31d28934e101bfe06059a54a8e31f5f",
+        "0xc21484cf303ef79b53167225722c3060ad82556d",
+        "0xcadeb27824d9eff72a83c30a95dce7b692944c7d",
+        "0xcd415ec319aefb35e824b7864be2b3088889ffee",
+        "0xcfd0a8bbf821030bf9d94f020d49fa8ad8fb5ba0",
+        "0xdc1d6a8c90735eaba3d34395b9ffe160e1daac02",
+        "0xdc61a282d2e193f0250c9583938e383d3d6ac208",
+        "0xe212492ae0693c15d7eaad7dd93b77aea1afd8af",
+        "0xe35fcf78113924582a594825818b85a7af79c85d",
+        "0xe499e6a3759951923a6cc5f9844744f581cd7fe2",
+        "0xe580dc4166f75d1cc2351c78d884093f2a9f7da0",
+        "0xe5839c1e0a0167fabbf42e0ebcf8e0469158dea5",
+        "0xe6ed60c8f33ae4e911bd59075658cc6397395582",
+        "0xffa29562c8e834b2845d3c70b4124d9fa9ba2457"
+      ],
+      "tx_index": 1,
+      "block": 22710988,
+      "tx_hash": "0x5db22f0edc1a9eda5343573da27dd2168c8a36a7f948401db76e22ba1fab71ea",
+      "amendment": {
+        "removed_from_v": {
+          "0x820402aa86145d0c576b0756f49c37f730124666": "M2 created in T"
+        },
+        "added_to_v": {
+          "0x746b3d7e9953cdaa8c4d4fd3ee24fe133f459f32": "O net outflow, no net inflow"
+        },
+        "tx_to": "",
+        "created_in_t": [
+          "0x0027fd5e42db8d1c7c15fd390cc0989cd882ca29",
+          "0x0afa532411a90cc857bb4002de2b36abffc0ade1",
+          "0x1924d02b3d17eeee98f57e99cc9afb947ac23f4d",
+          "0x1aee773799502977b20bc3e9943101a74427cb81",
+          "0x239feb014ee1b97180efa1c854b2080efe9930fe",
+          "0x427e02957e7c8fcae82914a4ad2883ba2aca0a4a",
+          "0x4470a75caa953c441d486039468b4523a9a14023",
+          "0x46eaf67c1fcf5382ee0c248fc61bf367b5e31f39",
+          "0x494743a68e4d59dd35d8f68611a40b547a58d7ec",
+          "0x5a7530880b2d8b0324024837580ceea1c15f6d78",
+          "0x5bef25eb78185d10143fbfb6304d0dd12b756d49",
+          "0x5cf907835b8ba3bb918cca3b76a0478dffba4bb8",
+          "0x621b34152d31e3b159da13f4e08e7a5a45d81082",
+          "0x6370bcc058088e6b3d4ecfa02fe1d679a709b089",
+          "0x76c611e34f9ca7aaad50382ada61740ec365d9f2",
+          "0x775ab45b6a726a96c3fe2cdf2e475dd00ff5c7be",
+          "0x77abad8a0ec136c9f0882648ef35c94168e3e8d3",
+          "0x7e2dbc25ba998f416344ccf7ca6ce36e7aa8cc6d",
+          "0x800f1a768b055e5f5d1c99df530396bc7523eb73",
+          "0x81ff9cd2ee35782871491d2d880d3a89e87caf44",
+          "0x820402aa86145d0c576b0756f49c37f730124666",
+          "0x84b5b97fe13c261c597c226c155a25f90b77754d",
+          "0x884281183a5582c5d306e6d7ec7553ceb0b08782",
+          "0x8c28998dbe0da16b652b979de62824607932c42e",
+          "0x8c94773be745d8b7e9c757bb8ad725c2885e2605",
+          "0x8e84dc78d723037202c549528790d1172c8a5546",
+          "0x905f4b4afa95e4fe427beae13038d6fa8690fa2b",
+          "0x913fec537cbb406b321f62e70bffa0e18f232037",
+          "0x91cfe65b11d8c90e117b51b763e1f80300e48c3e",
+          "0x920aeb2bd27126f904fa13b814cecfd80844d1a4",
+          "0x9914ac237d831dd7708861b154425d0dec1530c7",
+          "0x9f4b615446ecb14f308a0b557beff47e3ebb68ed",
+          "0xa2becc4df1f945bccea7a7ce4e383542e96cc482",
+          "0xade2d7d87769484fe092456d06d8ca7c2d308996",
+          "0xb24aa0d6ad72d312be3bf2df024571609ee9790e",
+          "0xb6b243981baf767e674e45e9e1075977a78bee5b",
+          "0xb960773e6a25ff9696fef0587cdd181af50090fa",
+          "0xbdfef5f965a65916f03c986ecd88184f840c3607",
+          "0xbe34e3dfec25e3d4879b7e22ee1f6bdee30d6a8a",
+          "0xc0e7618ac31d28934e101bfe06059a54a8e31f5f",
+          "0xc21484cf303ef79b53167225722c3060ad82556d",
+          "0xcadeb27824d9eff72a83c30a95dce7b692944c7d",
+          "0xcd415ec319aefb35e824b7864be2b3088889ffee",
+          "0xcfd0a8bbf821030bf9d94f020d49fa8ad8fb5ba0",
+          "0xdc1d6a8c90735eaba3d34395b9ffe160e1daac02",
+          "0xdc61a282d2e193f0250c9583938e383d3d6ac208",
+          "0xe212492ae0693c15d7eaad7dd93b77aea1afd8af",
+          "0xe35fcf78113924582a594825818b85a7af79c85d",
+          "0xe499e6a3759951923a6cc5f9844744f581cd7fe2",
+          "0xe580dc4166f75d1cc2351c78d884093f2a9f7da0",
+          "0xe5839c1e0a0167fabbf42e0ebcf8e0469158dea5",
+          "0xe6ed60c8f33ae4e911bd59075658cc6397395582",
+          "0xffa29562c8e834b2845d3c70b4124d9fa9ba2457"
+        ],
+        "deployment_blocks": {},
+        "changed": true
+      }
+    },
+    "defihacklabs-multitransferswap-2025-04-27": {
+      "victim": [
+        "0x6518905b5917614383e09bf9e94083f8f679acd1",
+        "0x7a250d5630b4cf539739df2c5dacb4c659f2488d"
+      ],
+      "attacker": [
+        "0x007f35b4d7e5d6f25c025effbce36494b55f4c5c",
+        "0x39eec2f1db1a50bcf528118e417aa23244018d3d",
+        "0x49fcc8b1f86137fb209355181339e1bda68065c3",
+        "0x692e9d3feee2d4e0852e8914755a5ae0efcf5ec9",
+        "0x7143de00bf2124d1150987c4db70b2cc172a6c2d",
+        "0x765f09796711d6bb26cbb5a0d36189bd6aa88e56",
+        "0x7c982e93d6b1ede9626a84ebeafbc42e5991dee8",
+        "0x908184485dc57825f67de5fdc847f9d761d3855b",
+        "0x90e69141bb7b3505478fb32b36f26009557507af",
+        "0x9fb0a31799fa1243fb53dbcc57fd531e13753437",
+        "0xba2192dcc667dc4d982198221464b1606d829e3c",
+        "0xc81d3351e0f1b3855b716ae1aaa85a823fe7038c",
+        "0xed1a500437aeae7ed985f9a8bd8ff3dd2531cce7",
+        "0xf0e5b3427b0d5ddc096a731d9c6cfe165d17d612"
+      ],
+      "tx_index": 0,
+      "block": 22361154,
+      "tx_hash": "0xbb82787a24d9b8d1047bbc12fe5d4b8d4ad3fc3e32e997985043ec3ef6d7dffe",
+      "amendment": {
+        "removed_from_v": {
+          "0x007f35b4d7e5d6f25c025effbce36494b55f4c5c": "M2 created in T"
+        },
+        "added_to_v": {
+          "0x6518905b5917614383e09bf9e94083f8f679acd1": "O net outflow, no net inflow",
+          "0x7a250d5630b4cf539739df2c5dacb4c659f2488d": "O net outflow, no net inflow"
+        },
+        "tx_to": "",
+        "created_in_t": [
+          "0x007f35b4d7e5d6f25c025effbce36494b55f4c5c",
+          "0x39eec2f1db1a50bcf528118e417aa23244018d3d",
+          "0x49fcc8b1f86137fb209355181339e1bda68065c3",
+          "0x692e9d3feee2d4e0852e8914755a5ae0efcf5ec9",
+          "0x7143de00bf2124d1150987c4db70b2cc172a6c2d",
+          "0x765f09796711d6bb26cbb5a0d36189bd6aa88e56",
+          "0x908184485dc57825f67de5fdc847f9d761d3855b",
+          "0x90e69141bb7b3505478fb32b36f26009557507af",
+          "0x9fb0a31799fa1243fb53dbcc57fd531e13753437",
+          "0xba2192dcc667dc4d982198221464b1606d829e3c",
+          "0xc81d3351e0f1b3855b716ae1aaa85a823fe7038c",
+          "0xed1a500437aeae7ed985f9a8bd8ff3dd2531cce7",
+          "0xf0e5b3427b0d5ddc096a731d9c6cfe165d17d612"
+        ],
+        "deployment_blocks": {},
+        "changed": true
+      }
+    },
+    "defihacklabs-muredistribution-2026-05-21": {
+      "victim": [
+        "0x29b0a315924e05ac0c898a63d96daa33cfd1cac7",
+        "0x365083717efb17f3895290ba38f20f568c7a4d8a"
+      ],
+      "attacker": [
+        "0x08096e9ae70d7c5f2707b203a7801b75d1412156",
+        "0x26e5415c5ba86b4a521aaebf538623b9f32cd467",
+        "0x2b896760f8ad2ecf58ef93bdf71ac5e85c2b7f63"
+      ],
+      "tx_index": 28,
+      "block": 25141107,
+      "tx_hash": "0xb83040361a0ec72fa2d06ad69493226518a5f8b5d96c19b400626248f9c5b798",
+      "amendment": {
+        "removed_from_v": {
+          "0x26e5415c5ba86b4a521aaebf538623b9f32cd467": "M2 created in T"
+        },
+        "added_to_v": {},
+        "tx_to": "",
+        "created_in_t": [
+          "0x26e5415c5ba86b4a521aaebf538623b9f32cd467",
+          "0x2b896760f8ad2ecf58ef93bdf71ac5e85c2b7f63"
+        ],
+        "deployment_blocks": {
+          "0x29b0a315924e05ac0c898a63d96daa33cfd1cac7": 14591114,
+          "0x365083717efb17f3895290ba38f20f568c7a4d8a": 19532341
+        },
+        "changed": true
+      }
+    },
+    "defihacklabs-onyxdao-2024-09-26": {
+      "victim": [
+        "0x2c6650126b6e0749f977d280c98415ed05894711",
+        "0x2ccb7d00a9e10d0c3408b5eefb67011abfacb075",
+        "0x3a07339c1587397129bd905c95ed15b03a4a36f7",
+        "0x4f8b8c1b828147c1d6efc37c0326f4ac3e47d068",
+        "0x7a89e16cc48432917c948437ac1441b78d133a16",
+        "0xbd20ae088dee315ace2c08add700775f461fea64",
+        "0xcc53f8ff403824a350885a345ed4da649e060369",
+        "0xee894c051c402301bc19be46c231d2a8e38b0451",
+        "0xf3354d3e288ce599988e23f9ad814ec1b004d74a"
+      ],
+      "attacker": [
+        "0x680910cf5fc9969a25fd57e7896a14ff1e55f36b",
+        "0xa57eda20be51ae07df3c8b92494c974a92cf8956",
+        "0xae7d68b140ed075e382e0a01d6c67ac675afa223"
+      ],
+      "tx_index": 114,
+      "block": 20834658,
+      "tx_hash": "0x46567c731c4f4f7e27c4ce591f0aebdeb2d9ae1038237a0134de7b13e63d8729",
+      "amendment": {
+        "removed_from_v": {},
+        "added_to_v": {
+          "0x4f8b8c1b828147c1d6efc37c0326f4ac3e47d068": "P allowance spent by 0xee894c051c402301bc19be46c231d2a8e38b0451",
+          "0xcc53f8ff403824a350885a345ed4da649e060369": "F same deployer 0x7ec7d0db as the victim protocol",
+          "0xee894c051c402301bc19be46c231d2a8e38b0451": "O net outflow, no net inflow"
+        },
+        "tx_to": "0xa57eda20be51ae07df3c8b92494c974a92cf8956",
+        "created_in_t": [
+          "0xae7d68b140ed075e382e0a01d6c67ac675afa223"
+        ],
+        "deployment_blocks": {
+          "0x2c6650126b6e0749f977d280c98415ed05894711": 19063909,
+          "0x2ccb7d00a9e10d0c3408b5eefb67011abfacb075": 19063518,
+          "0x3a07339c1587397129bd905c95ed15b03a4a36f7": 19063868,
+          "0x7a89e16cc48432917c948437ac1441b78d133a16": 19064131,
+          "0xa57eda20be51ae07df3c8b92494c974a92cf8956": 20834635,
+          "0xbd20ae088dee315ace2c08add700775f461fea64": 19120020,
+          "0xf3354d3e288ce599988e23f9ad814ec1b004d74a": 19064112
+        },
+        "changed": true
+      }
+    },
+    "defihacklabs-rnspay-2025-03-06": {
+      "victim": [
+        "0x4c7f92d77b331ea74092e2e347c9fd026faa1c3f",
+        "0x6d191737f9653a66d0e8236fff6e8ea543c05bc0",
+        "0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc"
+      ],
+      "attacker": [
+        "0x4f75878dc95dfbc9be479c3b5a73776a7311f14c",
+        "0x5198bc63edf0f9d9926c4cd4db4ef18032ac4767",
+        "0x806d9d1f1b80107a294393c76258b69b441565f0"
+      ],
+      "tx_index": 45,
+      "block": 21988706,
+      "tx_hash": "0x69a825ffedeb4461afc95e21475c011b1675a95d318bb1dd63b13307dfe3b9ed",
+      "amendment": {
+        "removed_from_v": {},
+        "added_to_v": {
+          "0x4c7f92d77b331ea74092e2e347c9fd026faa1c3f": "P spender called by the attacker",
+          "0x6d191737f9653a66d0e8236fff6e8ea543c05bc0": "O net outflow, no net inflow"
+        },
+        "tx_to": "",
+        "created_in_t": [
+          "0x4f75878dc95dfbc9be479c3b5a73776a7311f14c",
+          "0x5198bc63edf0f9d9926c4cd4db4ef18032ac4767"
+        ],
+        "deployment_blocks": {
+          "0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc": 10008355
+        },
+        "changed": true
+      }
+    },
+    "defihacklabs-sashatoken-2024-10-06": {
+      "victim": [
+        "0x991493900674b10bdf54bdfe95b4e043257798cf",
+        "0xd1456d1b9ceb59abd4423a49d40942a9485ceef6"
+      ],
+      "attacker": [
+        "0x493c5655d40b051a64bc88a6af21d73d3a9b72a2"
+      ],
+      "tx_index": 0,
+      "block": 20905302,
+      "tx_hash": "0xd9fdc7d03eec28fc2453c5fa68eff82d4c297f436a6a5470c54ca3aecd2db17e",
+      "amendment": {
+        "removed_from_v": {},
+        "added_to_v": {
+          "0xd1456d1b9ceb59abd4423a49d40942a9485ceef6": "P allowance spent by 0x7a250d5630b4cf539739df2c5dacb4c659f2488d"
+        },
+        "tx_to": "0x991493900674b10bdf54bdfe95b4e043257798cf",
+        "created_in_t": [],
+        "deployment_blocks": {
+          "0x991493900674b10bdf54bdfe95b4e043257798cf": 20542472
+        },
+        "changed": true
+      }
+    },
+    "defihacklabs-sbr-token-2025-03-07": {
+      "victim": [
+        "0x3431c535ddfb6dd5376e5ded276f91deaa864ff2",
+        "0x460b1ae257118ed6f63ed8489657588a326a206d"
+      ],
+      "attacker": [
+        "0x7a6488348a7626c10e35df9ae0a2ad916a56a952",
+        "0x9926796371e0107abe406128fa801fda0e436f44"
+      ],
+      "tx_index": 18,
+      "block": 21991722,
+      "tx_hash": "0xe4c1aeacf8c93f8e39fe78420ce7a114ecf59dea90047cd2af390b30af54e7b9",
+      "amendment": {
+        "removed_from_v": {},
+        "added_to_v": {
+          "0x460b1ae257118ed6f63ed8489657588a326a206d": "F same deployer 0x0feb4a8e as the victim protocol"
+        },
+        "tx_to": "",
+        "created_in_t": [
+          "0x9926796371e0107abe406128fa801fda0e436f44"
+        ],
+        "deployment_blocks": {
+          "0x3431c535ddfb6dd5376e5ded276f91deaa864ff2": 21991375
+        },
+        "changed": true
+      }
+    },
+    "defihacklabs-silofinance-2025-06-25": {
+      "victim": [
+        "0x160287e2d3fdcde9e91317982fc1cc01c1f94085",
+        "0x60baf994f44dd10c19c0c47cbfe6048a4ffe4860",
+        "0xcbee4617abf667830fe3ee7dc8d6f46380829df9"
+      ],
+      "attacker": [
+        "0x04377cfaf4b4a44bb84042218cdda4cebcf8fd62",
+        "0x79c5c002410a67ac7a0cde2c2217c3f560859c7e"
+      ],
+      "tx_index": 2,
+      "block": 22781962,
+      "tx_hash": "0x1f15a193db3f44713d56c4be6679b194f78c2bcdd2ced5b0c7495b7406f5e87a",
+      "amendment": {
+        "removed_from_v": {},
+        "added_to_v": {
+          "0x160287e2d3fdcde9e91317982fc1cc01c1f94085": "O net outflow, no net inflow",
+          "0xcbee4617abf667830fe3ee7dc8d6f46380829df9": "F same deployer 0x6d228fa4 as the victim protocol"
+        },
+        "tx_to": "0x79c5c002410a67ac7a0cde2c2217c3f560859c7e",
+        "created_in_t": [],
+        "deployment_blocks": {
+          "0x60baf994f44dd10c19c0c47cbfe6048a4ffe4860": 22774559,
+          "0x79c5c002410a67ac7a0cde2c2217c3f560859c7e": 22781945
+        },
+        "changed": true
+      }
+    },
+    "defihacklabs-sizeflashloanlooping-2025-08-15": {
+      "victim": [
+        "0x4b356dc596dd508836bd9e8fe5acad81f8cf9019",
+        "0xac47ea87b634e0cabca5c291ead7c1474668210d"
+      ],
+      "attacker": [
+        "0x326dc2ff9045ae79ca3e395d584d3b56af1f310e",
+        "0x4b85b444aaacf377d4336aee41ef59a4252c40a9",
+        "0x977e8f1c4e3a05be213d62428afc2891aeb9f4e3"
+      ],
+      "tx_index": 157,
+      "block": 23146023,
+      "tx_hash": "0x63aaa5a9fc87ce419c8b1711effee34e2c726b3ee2c2d28f64b963408d6ea8d3",
+      "amendment": {
+        "removed_from_v": {},
+        "added_to_v": {},
+        "tx_to": "",
+        "created_in_t": [
+          "0x4b85b444aaacf377d4336aee41ef59a4252c40a9",
+          "0x977e8f1c4e3a05be213d62428afc2891aeb9f4e3"
+        ],
+        "deployment_blocks": {
+          "0x4b356dc596dd508836bd9e8fe5acad81f8cf9019": 23126398,
+          "0xac47ea87b634e0cabca5c291ead7c1474668210d": null
+        },
+        "changed": false
+      }
+    },
+    "defihacklabs-strategyllamalendconvex-2025-07-16": {
+      "victim": [
+        "0x084565106618419274beed1b4ad4bdff77c5f90f",
+        "0x6095ec5de7aca5e8938f4ed92e1f868cab243f5e",
+        "0x75b7db3e11138134fe4744553b5e5e3d6546d289",
+        "0x989aeb4d175e16225e39e87d0d97a3360524ad80",
+        "0xa21043df8d25dc876f38bc5c7e54285f3e1a936b",
+        "0xad444663c6c92b497225c6ce65fee2e7f78bfb86",
+        "0xf403c135812408bfbe8713b5a23a04b3d48aae31"
+      ],
+      "attacker": [
+        "0x2114ab8bb9b69545a5c0923e63687ee8cdad269e",
+        "0x29bd2258485da9f4224a99c512e14d4f64d81a50"
+      ],
+      "tx_index": 11,
+      "block": 22929493,
+      "tx_hash": "0x2ff7c23dca7e9a86c70004696802cbd37d6a77fc4f3e02522b16617045b764f6",
+      "amendment": {
+        "removed_from_v": {},
+        "added_to_v": {
+          "0x6095ec5de7aca5e8938f4ed92e1f868cab243f5e": "O net outflow, no net inflow",
+          "0x989aeb4d175e16225e39e87d0d97a3360524ad80": "O net outflow, no net inflow",
+          "0xa21043df8d25dc876f38bc5c7e54285f3e1a936b": "O net outflow, no net inflow",
+          "0xf403c135812408bfbe8713b5a23a04b3d48aae31": "P allowance spent by 0x6095ec5de7aca5e8938f4ed92e1f868cab243f5e"
+        },
+        "tx_to": "",
+        "created_in_t": [
+          "0x2114ab8bb9b69545a5c0923e63687ee8cdad269e"
+        ],
+        "deployment_blocks": {
+          "0x084565106618419274beed1b4ad4bdff77c5f90f": 20201412,
+          "0x75b7db3e11138134fe4744553b5e5e3d6546d289": 22433695,
+          "0xad444663c6c92b497225c6ce65fee2e7f78bfb86": 22083746
+        },
+        "changed": true
+      }
+    },
+    "defihacklabs-summerfi-2026-07-06": {
+      "victim": [
+        "0x106cbb1f445f0bffa7894f4199ee940bf7f6dd2b",
+        "0x1d511811aca9d8817a3e50f29cadff6243a02902",
+        "0x37305b1cd40574e4c5ce33f8e8306be057fd7341",
+        "0x377c3bd93f2a2984e1e7be6a5c22c525ed4a4815",
+        "0x3f289b064cd07e42210a57819908a937bec859e8",
+        "0x45312ea0eff7e09c83cbe249fa1d7598c4c8cd4e",
+        "0x4ef53d2caa51c447fdfeeedee8f07fd1962c9ee6",
+        "0x56bfa6f53669b836d1e0dfa5e99706b12c373ecf",
+        "0x81f025c87367033d87b6d3a95289b36106770b25",
+        "0x857a0cac1ac29d8101822f8879e4e6918293c7b5",
+        "0x8948a5f3d24f7a6d50ff36064e8cff33b2af062f",
+        "0x9414a42eab4580c042b18def4d37372a7881e001",
+        "0x9890c99f504337c3500ac05c267c38dfcd41c3e2",
+        "0x98c49e13bf99d7cad8069faa2a370933ec9ecf17",
+        "0xa188eec8f81263234da3622a406892f3d630f98c",
+        "0xa3931d71877c0e7a3148cb7eb4463524fec27fbd",
+        "0xa9ca4909700505585b1ad2a1579da3b670ffa9c4",
+        "0xb10c29b85e388f3ec1189f8ebc78b3f71408cd34",
+        "0xbbbbbbbbbb9cc5e90e3b3af64bdaf62c37eeffcb",
+        "0xbc65ad17c5c0a2a4d159fa5a503f4992c7b545fe",
+        "0xcc0f95e65d2ce7fb715bfb418bf61314d0878b41",
+        "0xd00c168451fddd8ef839e5c0f5b9666143d9400b",
+        "0xd0aadde147b6d683cbb80bfe0fb9e8db9de1958f",
+        "0xe2221aa07ec3266da87763e2b1e28d07a8a4e53b",
+        "0xe9cda459bed6dcfb8ac61cd8ce08e2d52370cb06",
+        "0xeb60a8e747d73c58ccc320bcdabb166f8a0c0d9d",
+        "0xebbae8cfabb0092d5b32f00ebee0c8139d24ddcd",
+        "0xfbe454f609c5f54cefe3f486129f05dfa081adf6"
+      ],
+      "attacker": [
+        "0x0514f827c129c16418a0933e03c99a6af982fc61",
+        "0x7bf716167b48cf527725722c6d79494b45b3bdca"
+      ],
+      "tx_index": 0,
+      "block": 25471348,
+      "tx_hash": "0x0db528c44f23fc7fa4544684a2fab81096450a14aae8bc89f42cd0592d43da12",
+      "amendment": {
+        "removed_from_v": {
+          "0x0514f827c129c16418a0933e03c99a6af982fc61": "M3 deployed 8 blocks before the attack in a block with a tx from tx.from"
+        },
+        "added_to_v": {
+          "0x106cbb1f445f0bffa7894f4199ee940bf7f6dd2b": "O net outflow, no net inflow",
+          "0x1d511811aca9d8817a3e50f29cadff6243a02902": "P allowance spent by 0x4ef53d2caa51c447fdfeeedee8f07fd1962c9ee6",
+          "0x37305b1cd40574e4c5ce33f8e8306be057fd7341": "O net outflow, no net inflow",
+          "0x377c3bd93f2a2984e1e7be6a5c22c525ed4a4815": "O net outflow, no net inflow",
+          "0x3f289b064cd07e42210a57819908a937bec859e8": "O net outflow, no net inflow",
+          "0x45312ea0eff7e09c83cbe249fa1d7598c4c8cd4e": "P allowance spent by 0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7",
+          "0x4ef53d2caa51c447fdfeeedee8f07fd1962c9ee6": "P spender called by the attacker",
+          "0x56bfa6f53669b836d1e0dfa5e99706b12c373ecf": "P spender called by the attacker",
+          "0x81f025c87367033d87b6d3a95289b36106770b25": "O net outflow, no net inflow",
+          "0x857a0cac1ac29d8101822f8879e4e6918293c7b5": "O net outflow, no net inflow",
+          "0x8948a5f3d24f7a6d50ff36064e8cff33b2af062f": "O net outflow, no net inflow",
+          "0x9414a42eab4580c042b18def4d37372a7881e001": "P allowance spent by 0xbbbbbbbbbb9cc5e90e3b3af64bdaf62c37eeffcb",
+          "0x9890c99f504337c3500ac05c267c38dfcd41c3e2": "O net outflow, no net inflow",
+          "0xa188eec8f81263234da3622a406892f3d630f98c": "P allowance spent by 0xf6e72db5454dd049d0788e411b06cfaf16853042",
+          "0xa3931d71877c0e7a3148cb7eb4463524fec27fbd": "O net outflow, no net inflow",
+          "0xa9ca4909700505585b1ad2a1579da3b670ffa9c4": "P allowance spent by 0x98c49e13bf99d7cad8069faa2a370933ec9ecf17",
+          "0xb10c29b85e388f3ec1189f8ebc78b3f71408cd34": "O net outflow, no net inflow",
+          "0xbbbbbbbbbb9cc5e90e3b3af64bdaf62c37eeffcb": "O net outflow, no net inflow",
+          "0xbc65ad17c5c0a2a4d159fa5a503f4992c7b545fe": "O net outflow, no net inflow",
+          "0xcc0f95e65d2ce7fb715bfb418bf61314d0878b41": "P allowance spent by 0xbbbbbbbbbb9cc5e90e3b3af64bdaf62c37eeffcb",
+          "0xd00c168451fddd8ef839e5c0f5b9666143d9400b": "O net outflow, no net inflow",
+          "0xd0aadde147b6d683cbb80bfe0fb9e8db9de1958f": "O net outflow, no net inflow",
+          "0xe2221aa07ec3266da87763e2b1e28d07a8a4e53b": "P spender called by the attacker",
+          "0xe9cda459bed6dcfb8ac61cd8ce08e2d52370cb06": "P allowance spent by 0xeb60a8e747d73c58ccc320bcdabb166f8a0c0d9d",
+          "0xeb60a8e747d73c58ccc320bcdabb166f8a0c0d9d": "O net outflow, no net inflow",
+          "0xebbae8cfabb0092d5b32f00ebee0c8139d24ddcd": "P spender called by the attacker",
+          "0xfbe454f609c5f54cefe3f486129f05dfa081adf6": "P allowance spent by 0xbbbbbbbbbb9cc5e90e3b3af64bdaf62c37eeffcb"
+        },
+        "tx_to": "0x0514f827c129c16418a0933e03c99a6af982fc61",
+        "created_in_t": [],
+        "deployment_blocks": {
+          "0x0514f827c129c16418a0933e03c99a6af982fc61": 25471340,
+          "0x98c49e13bf99d7cad8069faa2a370933ec9ecf17": 21795049
+        },
+        "changed": true
+      }
+    },
+    "defihacklabs-thetanuts-2026-06-15": {
+      "victim": [
+        "0x248038fdb6f00f4b636812ca6a7f06b81a195ab8",
+        "0x2ca7641b841a79cc70220ce838d0b9f8197accda",
+        "0x3ba337f3167ea35910e6979d5bc3b0aee60e7d59",
+        "0xad57221ae9897da08656aaabd5b1d4673d4ede71",
+        "0xc2c3ae0a7b405058558c9b4a63b373486cb86ac7",
+        "0xe1c93de547cc85cbd568295f6cc322b1dbbcf8ae",
+        "0xe5e8caa04c4b9e1c9bd944a2a78a48b05c3ef3af"
+      ],
+      "attacker": [
+        "0x0f9daa9e0adced4e64578b2e131930dde54e492e",
+        "0x30498e4466789e534c72e03b52a16c978655b41e",
+        "0xa589c5342068b0c1fefd44d3c95354427502ac91"
+      ],
+      "tx_index": 0,
+      "block": 25323329,
+      "tx_hash": "0xbba9f138fe39503bfd1aa62932dbd6ab35d37d23d48e4b7bf2988a9d5dc39fec",
+      "amendment": {
+        "removed_from_v": {},
+        "added_to_v": {
+          "0x248038fdb6f00f4b636812ca6a7f06b81a195ab8": "F same deployer 0x4a4c7c55 as the victim protocol",
+          "0x2ca7641b841a79cc70220ce838d0b9f8197accda": "F same deployer 0x4a4c7c55 as the victim protocol",
+          "0x3ba337f3167ea35910e6979d5bc3b0aee60e7d59": "O net outflow, no net inflow",
+          "0xad57221ae9897da08656aaabd5b1d4673d4ede71": "F same deployer 0x4a4c7c55 as the victim protocol",
+          "0xe1c93de547cc85cbd568295f6cc322b1dbbcf8ae": "O net outflow, no net inflow",
+          "0xe5e8caa04c4b9e1c9bd944a2a78a48b05c3ef3af": "F same deployer 0x4a4c7c55 as the victim protocol"
+        },
+        "tx_to": "",
+        "created_in_t": [
+          "0x0f9daa9e0adced4e64578b2e131930dde54e492e",
+          "0xa589c5342068b0c1fefd44d3c95354427502ac91"
+        ],
+        "deployment_blocks": {
+          "0xc2c3ae0a7b405058558c9b4a63b373486cb86ac7": 14668794
+        },
+        "changed": true
+      }
+    },
+    "defihacklabs-unistreetlaunchpad-2026-08-06": {
+      "victim": [
+        "0x000000000004444c5dc75cb358380d2e3de08a90",
+        "0x3bf4118f8862857872e6c13f87743ab05a52bc7d",
+        "0xfb60cd0b36ad4bd839b91767a6ad9055ab6ad825"
+      ],
+      "attacker": [
+        "0x3d8a2f4c522d7a6dac89820fc669d6552f25988e",
+        "0xc7d8c70f4349acc55409800c8768e801b7556b77",
+        "0xc94e23c58b9b2998edb7abc8f99393fead985076"
+      ],
+      "tx_index": 0,
+      "block": 25692311,
+      "tx_hash": "0x9583e95d5c88c7966e269197f4b09022f26b7a27ad2c13660dda6774e3136d14",
+      "amendment": {
+        "removed_from_v": {
+          "0x3d8a2f4c522d7a6dac89820fc669d6552f25988e": "M2 created in T"
+        },
+        "added_to_v": {
+          "0x000000000004444c5dc75cb358380d2e3de08a90": "O net outflow, no net inflow",
+          "0x3bf4118f8862857872e6c13f87743ab05a52bc7d": "F same deployer 0xff7fb7dd as the victim protocol"
+        },
+        "tx_to": "",
+        "created_in_t": [
+          "0x3d8a2f4c522d7a6dac89820fc669d6552f25988e",
+          "0xc7d8c70f4349acc55409800c8768e801b7556b77"
+        ],
+        "deployment_blocks": {
+          "0xfb60cd0b36ad4bd839b91767a6ad9055ab6ad825": 25668142
+        },
+        "changed": true
+      }
+    },
+    "defihacklabs-unverified-6f7a-2025-08-22": {
+      "victim": [
+        "0x14e6d67f824c3a7b4329d3228807f8654294e4bd",
+        "0x6f7a14bd931554683ed15dc92e25d046ed68ea68",
+        "0xa478c2975ab1ea89e8196811f51a7b7ade33eb11"
+      ],
+      "attacker": [
+        "0x308a2c17e8f7c41982c8e944560876a0241324e1",
+        "0x501d16503c461bc80ef81be05fe8e0a1b51b8947",
+        "0x7fccabaa351ba19e5602422ffada6ad5cf86e2b5",
+        "0xe4b97db5faf476db464bc271097fac97d6ce3783"
+      ],
+      "tx_index": 1,
+      "block": 23196046,
+      "tx_hash": "0x653b185a57fb5909180fe4eede67e51c5e9b70af16937382f86d5aefe635e5a7",
+      "amendment": {
+        "removed_from_v": {},
+        "added_to_v": {
+          "0x14e6d67f824c3a7b4329d3228807f8654294e4bd": "P allowance spent by 0x6f7a14bd931554683ed15dc92e25d046ed68ea68",
+          "0x6f7a14bd931554683ed15dc92e25d046ed68ea68": "P allowance spent by 0x14e6d67f824c3a7b4329d3228807f8654294e4bd"
+        },
+        "tx_to": "",
+        "created_in_t": [
+          "0x308a2c17e8f7c41982c8e944560876a0241324e1",
+          "0x501d16503c461bc80ef81be05fe8e0a1b51b8947",
+          "0x7fccabaa351ba19e5602422ffada6ad5cf86e2b5"
+        ],
+        "deployment_blocks": {
+          "0xa478c2975ab1ea89e8196811f51a7b7ade33eb11": 10042267
+        },
+        "changed": true
+      }
+    },
+    "defihacklabs-usm-2026-08-09": {
+      "victim": [
+        "0x2a7fff44c19f39468064ab5e5c304de01d591675"
+      ],
+      "attacker": [
+        "0x5a5e29ba89663a3558273354e990426f3cac7de7",
+        "0xb92b2e47680c89da8f951b8963ef469f461a50fc"
+      ],
+      "tx_index": 1193,
+      "block": 25716150,
+      "tx_hash": "0xfae5e751b8ce01457cbb6b529839f24a0cff50faaabcbd0fd02ca0cf559b050e",
+      "amendment": {
+        "removed_from_v": {},
+        "added_to_v": {},
+        "tx_to": "0x5a5e29ba89663a3558273354e990426f3cac7de7",
+        "created_in_t": [],
+        "deployment_blocks": {
+          "0x2a7fff44c19f39468064ab5e5c304de01d591675": 13390185,
+          "0x5a5e29ba89663a3558273354e990426f3cac7de7": 25716140
+        },
+        "changed": false
+      }
+    },
+    "defihacklabs-veth-2024-11-14": {
+      "victim": [
+        "0x19c5538df65075d53d6299904636bae68b6df441",
+        "0x280a8955a11fcd81d72ba1f99d265a48ce39ac2e",
+        "0x62f250cf7021e1cf76c765dec8ec623fe173a1b5"
+      ],
+      "attacker": [
+        "0x351d38733de3f1e73468d24401c59f63677000c9",
+        "0x713d2b652e5f2a86233c57af5341db42a5559dd1"
+      ],
+      "tx_index": 57,
+      "block": 21184784,
+      "tx_hash": "0x1ae40f26819da4f10bc7c894a2cc507cdb31c29635d31fa90c8f3f240f0327c0",
+      "amendment": {
+        "removed_from_v": {},
+        "added_to_v": {
+          "0x280a8955a11fcd81d72ba1f99d265a48ce39ac2e": "O net outflow, no net inflow",
+          "0x62f250cf7021e1cf76c765dec8ec623fe173a1b5": "F same deployer 0xa614e5ee as the victim protocol"
+        },
+        "tx_to": "0x351d38733de3f1e73468d24401c59f63677000c9",
+        "created_in_t": [],
+        "deployment_blocks": {
+          "0x19c5538df65075d53d6299904636bae68b6df441": 21056284,
+          "0x351d38733de3f1e73468d24401c59f63677000c9": 21184772
+        },
+        "changed": true
+      }
+    },
+    "defihacklabs-yeth-2025-12-01": {
+      "victim": [
+        "0x04c154b66cb340f3ae24111cc767e0184ed00cc6",
+        "0x1827f9ea98e0bf96550b2fc20f7233277fcd7e63",
+        "0x1bed97cbc3c24a4fb5c069c6e311a967386131f7",
+        "0x2b33cf282f867a7ff693a66e11b0fcc5552e4425",
+        "0x39254033945aa2e4809cc2977e7087bee48bd7ab",
+        "0x583019ff0f430721ada9cfb4fac8f06ca104d0b4",
+        "0x5e8422345238f34275888049021821e8e08caa1f",
+        "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0",
+        "0x856c4efb76c1d1ae02e20ceb03a2a6a08b0b8dc3",
+        "0x9ba021b0a9b958b5e75ce9f6dff97c7ee52cb3e6",
+        "0xac3e018457b222d93114458476f3e3416abbe38f",
+        "0xccd04073f4bdc4510927ea9ba350875c3c65bf81",
+        "0xd664b74274dfeb538d9bac494f3a4760828b02b0",
+        "0xdcee70654261af21c44c093c300ed3bb97b78192"
+      ],
+      "attacker": [
+        "0x3e8e7533dcf69c698cf806c3db22f7f10b9b0b97",
+        "0xadbe952ebb9b3e247261d2e3b96835f00f721f8e",
+        "0xbb2789b418fa18f9526ba79fa7038d4e6d753f73",
+        "0xfb63aa935cf0a003335dce9cca03c4f9c0fa4779"
+      ],
+      "tx_index": 0,
+      "block": 23914086,
+      "tx_hash": "0x53fe7ef190c34d810c50fb66f0fc65a1ceedc10309cf4b4013d64042a0331156",
+      "amendment": {
+        "removed_from_v": {},
+        "added_to_v": {
+          "0x04c154b66cb340f3ae24111cc767e0184ed00cc6": "F same deployer 0xe8ea8990 as the victim protocol",
+          "0x1bed97cbc3c24a4fb5c069c6e311a967386131f7": "F same deployer 0xd5d935c2 as the victim protocol",
+          "0x39254033945aa2e4809cc2977e7087bee48bd7ab": "F same deployer 0xfd9e6005 as the victim protocol",
+          "0x583019ff0f430721ada9cfb4fac8f06ca104d0b4": "O net outflow, no net inflow",
+          "0x5e8422345238f34275888049021821e8e08caa1f": "F same deployer 0x4600d3b1 as the victim protocol",
+          "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0": "O net outflow, no net inflow",
+          "0x856c4efb76c1d1ae02e20ceb03a2a6a08b0b8dc3": "F same deployer 0xfd9e6005 as the victim protocol",
+          "0x9ba021b0a9b958b5e75ce9f6dff97c7ee52cb3e6": "O net outflow, no net inflow",
+          "0xac3e018457b222d93114458476f3e3416abbe38f": "O net outflow, no net inflow",
+          "0xccd04073f4bdc4510927ea9ba350875c3c65bf81": "O net outflow, no net inflow",
+          "0xd664b74274dfeb538d9bac494f3a4760828b02b0": "P allowance spent by 0x9ba021b0a9b958b5e75ce9f6dff97c7ee52cb3e6",
+          "0xdcee70654261af21c44c093c300ed3bb97b78192": "O net outflow, no net inflow"
+        },
+        "tx_to": "",
+        "created_in_t": [
+          "0x3e8e7533dcf69c698cf806c3db22f7f10b9b0b97",
+          "0xadbe952ebb9b3e247261d2e3b96835f00f721f8e",
+          "0xbb2789b418fa18f9526ba79fa7038d4e6d753f73"
+        ],
+        "deployment_blocks": {
+          "0x1827f9ea98e0bf96550b2fc20f7233277fcd7e63": 17249890,
+          "0x2b33cf282f867a7ff693a66e11b0fcc5552e4425": 8490788
+        },
+        "changed": true
+      }
+    }
+  }
+}
