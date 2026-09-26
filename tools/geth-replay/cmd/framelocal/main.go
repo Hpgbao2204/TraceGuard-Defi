@@ -358,7 +358,7 @@ func applyTarget(
 			// The sender is lent the price of the extra gas and repays it afterwards, so a
 			// sender whose balance only covered the signed limit can still buy it. The loan
 			// touches only the sender's balance, never the victim's.
-			loan := new(uint256.Int).Mul(uint256.NewInt(extraGas), msg.GasPrice)
+			loan := new(uint256.Int).Mul(uint256.NewInt(extraGas), msg.GasFeeCap) // buyGas checks gasLimit * feeCap
 			st.AddBalance(msg.From, loan, tracing.BalanceChangeUnspecified)
 			receipt, _, err = core.ApplyTransactionWithEVM(msg, core.NewGasPool(gasPool.Gas()+extraGas), st,
 				header.Number, header.Hash(), header.Time, tx, evm)

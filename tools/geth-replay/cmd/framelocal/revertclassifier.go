@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -272,12 +273,15 @@ func (c *revertClassifier) classifyFrom(start *callTreeNode, txRevertReason stri
 	}
 	chain := []revertHop{hop(start)}
 	for {
+		// Descend only into a reverted child whose revert data the parent re-raised unchanged:
+		// a child revert that the parent caught (and then reverted with other data, or not at
+		// all) is not on the chain of uncaught reverts, so the parent is the origin.
 		var revertedChild *callTreeNode
 		revertedCount := 0
 		for _, child := range curr.Children {
 			if child.Reverted {
 				revertedCount++
-				if revertedChild == nil {
+				if revertedChild == nil && bytes.Equal(child.Output, curr.Output) {
 					revertedChild = child
 				}
 			}
