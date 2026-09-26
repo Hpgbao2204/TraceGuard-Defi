@@ -142,7 +142,8 @@ def interpret(payload: dict[str, Any] | None, mode: str, error: str | None = Non
         rec["revert_origin"] = ro.get("origin_class") or "unknown"
         rec["revert"] = {k: ro.get(k) for k in ("origin_address", "origin_caller", "origin_selector", "revert_kind",
                                                  "revert_message", "revert_data", "revert_chain",
-                                                 "intervened_read_before_revert", "multiple_reverts_at_depth")}
+                                                 "intervened_read_before_revert", "multiple_reverts_at_depth",
+                                                 "caught_victim_reverts")}
     reads = payload.get("scoped_reads") or []
     if reads:
         rec["reads_by_caller"] = dict(sorted(Counter(r.get("caller_class") or "victim" for r in reads).items()))

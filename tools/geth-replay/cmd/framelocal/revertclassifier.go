@@ -35,6 +35,11 @@ type revertOriginResult struct {
 	// DELEGATECALL code). Reported only; verdicts use OriginClass.
 	OriginContext      string `json:"origin_context,omitempty"`
 	OriginContextClass string `json:"origin_context_class,omitempty"`
+	// CaughtVictimReverts lists victim frames (by storage context under -delegate-context) that
+	// reverted with data but whose revert was caught, i.e. are not on the uncaught chain. It is a
+	// diagnostic (e.g. a restored guard that fired but whose refusal the attacker caught and
+	// re-raised with its own message); verdicts never use it.
+	CaughtVictimReverts []revertHop `json:"caught_victim_reverts,omitempty"`
 }
 
 // revertHop is one reverted frame on the path to the revert origin.
@@ -333,6 +338,30 @@ func (c *revertClassifier) classifyFrom(start *callTreeNode, txRevertReason stri
 		candidateVerdict = "REVERT_CONFOUND_THIRD_PARTY"
 	}
 
+	onChain := map[*callTreeNode]bool{}
+	for n := start; n != nil; {
+		onChain[n] = true
+		var next *callTreeNode
+		for _, child := range n.Children {
+			if child.Reverted && bytes.Equal(child.Output, n.Output) {
+				next = child
+				break
+			}
+		}
+		n = next
+	}
+	var caught []revertHop
+	for _, n := range c.nodes {
+		addr := n.To
+		if c.delegateContext {
+			addr = n.Context
+		}
+		if n.Reverted && len(n.Output) > 0 && !onChain[n] && c.classifyOrigin(addr) == "victim" && len(caught) < 8 {
+			_, m := decodeRevert(n.Output, n.Error)
+			caught = append(caught, revertHop{Address: n.To.Hex(), Selector: n.Selector, Class: "victim", Message: m})
+		}
+	}
+
 	kind, msg := decodeRevert(curr.Output, curr.Error)
 	data := ""
 	if len(curr.Output) > 0 {
@@ -355,5 +384,6 @@ func (c *revertClassifier) classifyFrom(start *callTreeNode, txRevertReason stri
 		IntervenedReadBeforeRevert: readBeforeRevert,
 		CandidateVerdict:           candidateVerdict,
 		MultipleRevertsAtDepth:     multipleRevertsAtDepth,
+		CaughtVictimReverts:        caught,
 	}
 }

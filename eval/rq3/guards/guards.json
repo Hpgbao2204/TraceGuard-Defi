@@ -31,7 +31,7 @@
     }
   },
   "not_measurable": {
-    "defihacklabs-silofinance-2025-06-25": "the victim never executes and its harm is a debt position minted on its behalf, not an outflow; Eq. (1) gives no positive loss, so G_pos fails for every intervention"
+    "defihacklabs-silofinance-2025-06-25": "not attempted. Under the frozen boundary the victim never executes and its harm is a debt position minted on its behalf, so Eq. (1) gives no positive loss and G_pos fails; the amended boundary adds the Silo pool as an outflow victim, but no guard restoration was frozen for this case."
   },
   "extra_gas": 2000000,
   "corrections": [

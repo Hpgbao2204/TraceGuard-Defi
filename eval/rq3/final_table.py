@@ -310,7 +310,9 @@ def check_frozen(path: Path, sha: str, fdoc: dict[str, Any]) -> str | None:
     commit that holds it is recorded."""
     if sha == FROZEN_FACTORS_SHA256:
         return "970ce98"
-    if fdoc.get("rule_version") in (None, "v2"):
+    if fdoc.get("rule_version") in (None, "v2") and fdoc.get("manifest") in (None, "fixed20_cases.json"):
+        # v2 on the frozen manifest is exactly the file frozen at 970ce98; v2 re-derived on another
+        # manifest (the published boundary amendment) must be committed and clean, like any later rule.
         raise SystemExit(f"factors file {path} is not the frozen v2 (sha256 {sha})")
     try:
         tracked = subprocess.run(["git", "ls-files", "--error-unmatch", str(path)], capture_output=True, cwd=ROOT)

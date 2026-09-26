@@ -58,7 +58,9 @@ ALKIMIYA = {
     "tx_hash": "0x9b9a6dd05526a8a4b40e5e1a74a25df6ecccae6ee7bf045911ad89a1dd3f0814",
     "tx_index": 0,
     "victim": ["0xf3f84ce038442ae4c4dcb6a8ca8bacd7f28c9bde"],  # SilicaPools, the WBTC payer
-    "attacker": [],
+    # tx.to: the attack contract (it takes the Morpho flash loan and receives its callback), which the
+    # boundary rule M4 puts in the attacker set; the tx sender is added by the runner.
+    "attacker": ["0x80bf7db69556d9521c03461978b8fc731dbbd4e4"],
     "override": "0xf3f84ce038442ae4c4dcb6a8ca8bacd7f28c9bde",
     "artifact": ROOT / "eval" / "fixtures" / "alkimiya_patched_runtime_historical_immutables.txt",
     "expected_selector": "0x5cb35d8f",  # SilicaPools__SharesTooLarge()
@@ -129,7 +131,9 @@ def run_alkimiya(exe: str, out_dir: Path, timeout: int) -> dict[str, Any]:
         rec = interpret(payload, mode)
         rv = rec.get("revert") or {}
         data = (rv.get("revert_data") or rv.get("revert_message") or "").lower()
+        caught = [h.get("message") or "" for h in (rv.get("caught_victim_reverts") or [])]
         res[label] = {"verdict": rec.get("verdict"), "reason": rec.get("reason"), "replay_gate": rec.get("replay_gate"),
+                      "guard_fired_but_caught": any(m.lower().startswith(ALKIMIYA["expected_selector"]) for m in caught),
                       "acceptance_gate": payload.get("acceptance_gate"), "origin": rv.get("origin_address"),
                       "origin_class": rec.get("revert_origin"), "revert_data": data[:74],
                       "guard_reached": data.startswith(ALKIMIYA["expected_selector"]),

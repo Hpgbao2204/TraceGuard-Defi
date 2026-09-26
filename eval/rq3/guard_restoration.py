@@ -157,6 +157,8 @@ def cmd_run(args) -> None:
                           "replay_gate": rec.get("replay_gate"), "origin_class": rec.get("revert_origin"),
                           "origin": rv.get("origin_address"), "revert_message": rv.get("revert_message"),
                           "guard_type": classify_guard(rv).get("type") if rv else None,
+                          "guard_fired_but_caught": any((h.get("message") or "") == g["expected_revert"]
+                                                        for h in rv.get("caught_victim_reverts") or []),
                           "token_losses": rec.get("token_losses")}
         gd, idn, base = res.get("guard", {}), res.get("identity", {}), res.get("baseline", {})
         res["identity_reproduces_baseline"] = bool(idn.get("replay_gate") and not idn.get("origin_class")
@@ -168,7 +170,8 @@ def cmd_run(args) -> None:
                              and gd.get("guard_type") == "security")
         report["cases"][name] = res
         print(f"{name[13:]:34s} passed={res['passed']} guard={gd.get('verdict')}/{gd.get('origin_class')}/"
-              f"{gd.get('revert_message')!r}/{gd.get('guard_type')} identity={idn.get('verdict')}({idn.get('reason')})")
+              f"{gd.get('revert_message')!r}/{gd.get('guard_type')} caught={gd.get('guard_fired_but_caught')} "
+              f"identity={idn.get('verdict')}({idn.get('reason')})")
     (WORK / "results.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"written: {WORK / 'results.json'}")
 
