@@ -82,6 +82,9 @@ type verdictInput struct {
 	Input      *attackerInputCheck
 	Revert     *revertOriginResult // origin of the counterfactual revert, if any
 	Thresholds verdictThresholds
+	// NotReadOnly counts intervened sites that write state; they are not
+	// admissible read sites, so any such site makes the run inconclusive.
+	NotReadOnly int
 }
 
 func inconclusive(res frameLocalExecutionResult, code, reason string) frameLocalExecutionResult {
@@ -178,6 +181,9 @@ func computeFrameLocalVerdict(in verdictInput) frameLocalExecutionResult {
 		return res
 	}
 
+	if in.NotReadOnly > 0 {
+		return inconclusive(res, "site_not_read_only", fmt.Sprintf("%d intervened site(s) write state; only read-only calls are admissible", in.NotReadOnly))
+	}
 	if !inputOK {
 		return inconclusive(res, "attacker_input_changed", "attacker input to the victim differs from baseline ("+in.Input.Detail+")")
 	}

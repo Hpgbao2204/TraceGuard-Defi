@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -54,6 +55,10 @@ type scopedReadRecord struct {
 	Args string `json:"args,omitempty"`
 	// CallerClass is victim, attacker or third_party (who made this read).
 	CallerClass string `json:"caller_class,omitempty"`
+	// NotReadOnly: the call writes state (it fails under STATICCALL at some
+	// depth), so it is not a read site; it runs unchanged and the run is
+	// inconclusive.
+	NotReadOnly bool `json:"not_read_only,omitempty"`
 }
 
 // Value modes for scoped reads.
@@ -317,6 +322,32 @@ func (m *scopingManager) discover(depth int, from, to common.Address, selector s
 	m.records = append(m.records, rec)
 }
 
+// readOnly reports whether the call, run as a STATICCALL on a copy of the
+// current state, completes without any frame attempting a state write
+// (storage, transient storage, logs, value transfer, creation, self-destruct).
+func (m *scopingManager) readOnly(from, to common.Address, input []byte, gas uint64, st *state.StateDB) bool {
+	blockContext := core.NewEVMBlockContext(m.header, chainFor(m.header, m.chainConfig), &m.header.Coinbase)
+	wrote := false
+	hooks := &tracing.Hooks{OnExit: func(_ int, _ []byte, _ uint64, err error, _ bool) {
+		if isWriteProtection(err) {
+			wrote = true
+		}
+	}}
+	evalEVM := vm.NewEVM(blockContext, st.Copy(), m.chainConfig, vm.Config{Tracer: hooks})
+	if gas == 0 || gas > 5_000_000 {
+		gas = 5_000_000
+	}
+	_, _, err := evalEVM.StaticCall(from, to, input, vm.NewGasBudget(gas, 0))
+	return !wrote && !isWriteProtection(err)
+}
+
+// isWriteProtection matches the STATICCALL write error, which this geth
+// version reports wrapped (e.g. "out of gas: write protection").
+func isWriteProtection(err error) bool {
+	return err != nil && (errors.Is(err, vm.ErrWriteProtection) ||
+		strings.Contains(err.Error(), vm.ErrWriteProtection.Error()))
+}
+
 // evaluateObserved runs the read on a copy of the current state, which is what
 // the real call would return at this point.
 func (m *scopingManager) evaluateObserved(from, to common.Address, input []byte, gas uint64, st *state.StateDB) ([]byte, error) {
@@ -502,6 +533,15 @@ func (m *scopingManager) onEnter(
 	}
 
 	fnName := knownPriceSelectors[selector]
+	// Only read-only calls are admissible read sites. A call that writes state
+	// is left to run unchanged: stubbing it would drop its writes, and its
+	// STATICCALL evaluation above would turn it into a revert.
+	if m.valueMode != valueSham && !m.readOnly(from, to, input, gas, st) {
+		m.records = append(m.records, scopedReadRecord{Depth: depth, Caller: from.Hex(), Target: to.Hex(),
+			Selector: "0x" + selector, Function: fnName, FrameIndex: currentFrameIndex, Seq: m.clock.now(),
+			Kind: m.valueMode, CallerClass: m.callerClass(from), Args: argsHex(input), NotReadOnly: true})
+		return
+	}
 	record := scopedReadRecord{
 		Depth:         depth,
 		Caller:        from.Hex(),
@@ -547,4 +587,15 @@ func (m *scopingManager) onExit(depth int, output []byte, st *state.StateDB) {
 	} else {
 		m.activeStubs[depth] = stack[:len(stack)-1]
 	}
+}
+
+// notReadOnly counts the intervened sites that write state.
+func (m *scopingManager) notReadOnly() int {
+	n := 0
+	for _, r := range m.records {
+		if r.NotReadOnly {
+			n++
+		}
+	}
+	return n
 }

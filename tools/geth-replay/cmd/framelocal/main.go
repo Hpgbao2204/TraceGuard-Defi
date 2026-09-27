@@ -930,9 +930,10 @@ func main() {
 						Mode:       *mode,
 						Baseline:   &base.recorder.entryFrames[targetIdx],
 						CF:         cfRecorder.frameLocalResult,
-						Consumed:   consumed,
-						Sites:      len(scopingMgr.records),
-						Thresholds: thresholds,
+						Consumed:    consumed,
+						Sites:       len(scopingMgr.records),
+						Thresholds:  thresholds,
+						NotReadOnly: scopingMgr.notReadOnly(),
 					}
 					if in.CF != nil {
 						check := checkAttackerInputs(base.recorder.entryFrames, targetIdx, cfRecorder.entryFrames, targetIdx, func(addr string) bool { return cfRecorder.isAttacker(common.HexToAddress(addr)) })
@@ -986,10 +987,11 @@ func main() {
 						CF:         &victimEntryFrame{FrameIndex: -1, Status: !cfFailed, Reverted: cfFailed, GasUsed: cfGas, Error: errText},
 						BaseLoss:   sumLossTopLevel(base.recorder.entryFrames),
 						CFLoss:     sumLossTopLevel(frameRec.entryFrames),
-						Consumed:   len(scopingMgr.records) > 0,
-						Sites:      len(scopingMgr.records),
-						Revert:     &revertRes,
-						Thresholds: thresholds,
+						Consumed:    len(scopingMgr.records) > 0,
+						Sites:       len(scopingMgr.records),
+						Revert:      &revertRes,
+						Thresholds:  thresholds,
+						NotReadOnly: scopingMgr.notReadOnly(),
 					})
 					if *unscoped {
 						verdict.Mode = "whole-tx-unscoped"
