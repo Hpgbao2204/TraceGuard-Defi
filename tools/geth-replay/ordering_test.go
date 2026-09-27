@@ -369,3 +369,25 @@ func TestLeanHooksKeepLedgerInputsOnly(t *testing.T) {
 		t.Fatalf("balance changes %+v", *balances)
 	}
 }
+
+func TestIntermediateStateChangeIsConfoundEvenWithSameLogs(t *testing.T) {
+	// An intermediate transaction whose status, gas, and logs match the observed
+	// order but whose state diff does not is still an ordering confound.
+	report := newOrderingReport([]int{0}, 2)
+	baseline := baselineOutcome{Status: true, Gas: 21000}
+	report.recordDropped(0, "0xd0", baseline)
+	report.recordExecuted(result{Index: 1, Hash: "0x01", ActualOK: true, ActualGas: 21000,
+		StateDiffChecked: true, StateDiffMatch: false, ExtraWrites: []string{"storage:0xaa:0x01"}}, baseline, 0)
+	report.recordExecuted(result{Index: 2, Hash: "0x02", ActualOK: true, ActualGas: 21000}, baseline, 0)
+	if !report.Confounded || len(report.Confounds) != 1 || report.Confounds[0].Index != 1 ||
+		!containsString(report.Confounds[0].Kinds, confoundStateChanged) {
+		t.Fatalf("state-only change not reported as confound: %+v", report.Confounds)
+	}
+	unchanged := newOrderingReport([]int{0}, 2)
+	unchanged.recordDropped(0, "0xd0", baseline)
+	unchanged.recordExecuted(result{Index: 1, Hash: "0x01", ActualOK: true, ActualGas: 21000,
+		StateDiffChecked: true, StateDiffMatch: true}, baseline, 0)
+	if unchanged.Confounded {
+		t.Fatalf("matching state diff reported as confound: %+v", unchanged.Confounds)
+	}
+}

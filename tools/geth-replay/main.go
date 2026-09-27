@@ -271,6 +271,9 @@ type result struct {
 	StatusMatch         bool                      `json:"status_match"`
 	LogsMatch           bool                      `json:"logs_match"`
 	PostStateMatch      bool                      `json:"post_state_match"`
+	StateDiffChecked    bool                      `json:"state_diff_checked"`
+	StateDiffMatch      bool                      `json:"state_diff_match"`
+	ExtraWrites         []string                  `json:"state_diff_mismatches,omitempty"`
 	Error               string                    `json:"error,omitempty"`
 	RevertData          string                    `json:"revert_data,omitempty"`
 	CallTrace           []callFrame               `json:"call_trace,omitempty"`
@@ -1070,6 +1073,7 @@ type output struct {
 	PreExecutionApplied        bool                  `json:"pre_execution_applied"`
 	PostStateEvidenceAvailable bool                  `json:"post_state_evidence_available"`
 	RelevantPostStateMatch     bool                  `json:"relevant_post_state_match"`
+	PrefixStateDiffMatch       bool                  `json:"prefix_state_diff_match"`
 	ReadGuardReasons           []string              `json:"authenticated_read_failures,omitempty"`
 	ReadFailures               []readFailure         `json:"authenticated_read_failure_details,omitempty"`
 	MutationApplication        []mutationApplication `json:"mutation_application,omitempty"`
@@ -1673,7 +1677,7 @@ func main() {
 		"istanbul":            rules.IsIstanbul, "berlin": rules.IsBerlin, "london": rules.IsLondon,
 		"header_time": header.Time, "header_gas_limit": header.GasLimit,
 		"difficulty": header.Difficulty.String(), "base_fee_nil": header.BaseFee == nil,
-	}, AllGasMatch: true, AllStatus: true, AllLogsMatch: true, PostStateEvidenceAvailable: true, RelevantPostStateMatch: true, TargetIndex: *targetIndex,
+	}, AllGasMatch: true, AllStatus: true, AllLogsMatch: true, PostStateEvidenceAvailable: true, RelevantPostStateMatch: true, PrefixStateDiffMatch: true, TargetIndex: *targetIndex,
 		Note: "One shared StateDB seeded only from the proof-bound authenticated initial state. Global state root is out of scope; unauthenticated account/storage reads invalidate fidelity acceptance."}
 	resultOutput.BlockContextComplete = chainCtx.complete && parent != nil
 	resultOutput.PreExecutionApplied = true
@@ -1842,8 +1846,19 @@ func main() {
 					originalOnEnter(depth, typ, from, to, input, gas, value)
 				}
 			}
+			// Prefix transactions: record net writes for the state-diff part of J(D).
+			// State-change hooks fire only through a hooked StateDB, which carries
+			// the tracker's hooks alone so no other hook changes behavior.
+			var writes *writeTracker
+			var evmState vm.StateDB = st
+			if i != *targetIndex {
+				writes = newWriteTracker()
+				trackHooks := &tracing.Hooks{}
+				writes.attach(trackHooks)
+				evmState = state.NewHookedState(st, trackHooks)
+			}
 			blockContext := core.NewEVMBlockContext(&header, chainCtx, &header.Coinbase)
-			evm := vm.NewEVM(blockContext, &authenticatedStateDB{StateDB: st, guard: readGuard}, chainConfig, config)
+			evm := vm.NewEVM(blockContext, &authenticatedStateDB{StateDB: evmState, guard: readGuard}, chainConfig, config)
 			var intervention *callInterventionEvidence
 			if i == *targetIndex && *interventionAction != "" {
 				if (*interventionAction != "revert" && *interventionAction != "observe_only" && *interventionAction != "substitute" && *interventionAction != "substitute_passthrough" && *interventionAction != "rewrite_input" && *interventionAction != "rewrite_value" && *interventionAction != "rewrite_input_value" && *interventionAction != "callback_trampoline" && *interventionAction != "callback_trampoline_transfer" && *interventionAction != "storage_patch") || (*interventionType != "CALL" && *interventionType != "DELEGATECALL" && *interventionType != "STATICCALL") || *interventionCaller == "" || *interventionCallee == "" || *interventionSelector == "" || *interventionDepth < 0 || *interventionOccurrence < 1 || (*interventionAction == "storage_patch" && len(interventionStoragePatch) == 0) || ((*interventionAction == "substitute" || *interventionAction == "substitute_passthrough") && *interventionOutput == "") || ((*interventionAction == "rewrite_input" || *interventionAction == "rewrite_input_value") && *interventionInput == "") || ((*interventionAction == "rewrite_value" || *interventionAction == "rewrite_input_value") && (*interventionValue == "" || *interventionType != "CALL")) || ((*interventionAction == "callback_trampoline" || *interventionAction == "callback_trampoline_transfer") && (*interventionCallbackTo == "" || *interventionCallbackInput == "")) || (*interventionAction == "callback_trampoline_transfer" && (*interventionCapitalToken == "" || *interventionCapitalAmount == "")) {
@@ -2027,6 +2042,11 @@ func main() {
 				r.Logs = actualLogs
 				r.LogsMatch = logsEqual(actualLogs, receipts[i].Receipt.Logs)
 				r.PostStateMatch = postStateMatches(st, poststates[i].Prestate, poststates[i].Poststate, readGuard)
+				if writes != nil {
+					r.ExtraWrites = writes.diffMismatches(st, poststates[i].Prestate, poststates[i].Poststate)
+					r.StateDiffChecked = true
+					r.StateDiffMatch = len(r.ExtraWrites) == 0
+				}
 			}
 			if frames != nil {
 				r.CallTrace = *frames
@@ -2082,6 +2102,9 @@ func main() {
 		resultOutput.AllStatus = resultOutput.AllStatus && r.StatusMatch
 		resultOutput.AllLogsMatch = resultOutput.AllLogsMatch && r.LogsMatch
 		resultOutput.RelevantPostStateMatch = resultOutput.RelevantPostStateMatch && r.PostStateMatch
+		if r.StateDiffChecked {
+			resultOutput.PrefixStateDiffMatch = resultOutput.PrefixStateDiffMatch && r.StateDiffMatch
+		}
 		if ordering != nil {
 			ordering.recordExecuted(r, baselineFor(i), txEVM)
 			if readGuard.violated {

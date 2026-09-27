@@ -24,6 +24,10 @@ const (
 	confoundInvalid     = "invalid"
 	confoundGasChanged  = "gas_changed"
 	confoundLogsChanged = "logs_changed"
+	// The transaction's state diff (items it writes and their values)
+	// differs from the observed order's, although status, gas, and logs
+	// may be unchanged.
+	confoundStateChanged = "state_changed"
 )
 
 // parseDropIndices validates repeatable -drop-tx values. Only strict prefix
@@ -74,6 +78,7 @@ type orderingTxOutcome struct {
 	StatusDiffers       bool    `json:"status_differs"`
 	GasDiffers          bool    `json:"gas_differs"`
 	LogsDiffer          bool    `json:"logs_differ"`
+	StateDiffers        bool    `json:"state_differs"`
 	DiffersFromBaseline bool    `json:"differs_from_baseline"`
 	EVMms               float64 `json:"evm_ms"`
 }
@@ -145,12 +150,13 @@ func (o *orderingReport) recordExecuted(r result, baseline baselineOutcome, evm 
 		Status: r.ActualOK, Gas: r.ActualGas, Error: r.Error, EVMms: durationMS(evm)}
 	var kinds []string
 	if r.Error != "" {
-		outcome.StatusDiffers, outcome.GasDiffers, outcome.LogsDiffer = true, true, true
+		outcome.StatusDiffers, outcome.GasDiffers, outcome.LogsDiffer, outcome.StateDiffers = true, true, true, true
 		kinds = append(kinds, confoundInvalid)
 	} else {
 		outcome.StatusDiffers = r.ActualOK != baseline.Status
 		outcome.GasDiffers = r.ActualGas != baseline.Gas
 		outcome.LogsDiffer = !logsEqual(r.Logs, baseline.Logs)
+		outcome.StateDiffers = r.StateDiffChecked && !r.StateDiffMatch
 		if outcome.StatusDiffers {
 			if r.ActualOK {
 				kinds = append(kinds, confoundNowSucceeds)
@@ -163,6 +169,9 @@ func (o *orderingReport) recordExecuted(r result, baseline baselineOutcome, evm 
 		}
 		if outcome.LogsDiffer {
 			kinds = append(kinds, confoundLogsChanged)
+		}
+		if outcome.StateDiffers {
+			kinds = append(kinds, confoundStateChanged)
 		}
 	}
 	outcome.DiffersFromBaseline = len(kinds) > 0
