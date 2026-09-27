@@ -55,7 +55,7 @@ def score_lines(lines, model, tokenizer, g=15, s=3, seq_len=1024):
         for idx in idxs:
             masked.append((idx, input_ids[idx].item()))
             input_ids[idx] = tokenizer.mask_token_id
-        attention_mask = torch.ones((len(input_ids)))
+        attention_mask = torch.ones(len(input_ids))
         if padding_size:
             attention_mask[-padding_size:] = 0
         logits = model(input_ids=input_ids.unsqueeze(0), attention_mask=attention_mask.unsqueeze(0)).logits

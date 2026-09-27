@@ -28,8 +28,14 @@ import time
 from pathlib import Path
 from typing import Any
 
-from eval.revision.mainnet_sandwich import (LABELS as SANDWICH_LABELS, _clients, classify, pool_swaps, run_engine,
-                                            victim_output)
+from eval.revision.mainnet_sandwich import LABELS as SANDWICH_LABELS
+from eval.revision.mainnet_sandwich import (
+    _clients,
+    classify,
+    pool_swaps,
+    run_engine,
+    victim_output,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 WORK = ROOT / ".cache" / "revision" / "benign"
@@ -121,7 +127,7 @@ def cmd_acquire(args) -> None:
                                 tx_index=lb["victim"], out=out, timeout_s=120.0)
             acquire_proofs(out, archive)
             print(f"{lb['victim_hash'][:12]} ok in {time.perf_counter() - t0:.0f} s", flush=True)
-        except Exception as exc:  # keep going; the run step reports missing contexts
+        except Exception as exc:  # noqa: BLE001 - keep going; the run step reports missing contexts
             print(f"{lb['victim_hash'][:12]} failed: {type(exc).__name__}: {str(exc)[:160]}", flush=True)
 
 

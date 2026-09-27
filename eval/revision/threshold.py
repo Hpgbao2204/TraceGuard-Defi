@@ -30,11 +30,20 @@ from pathlib import Path
 import numpy as np
 
 from core.protocol import SCREENING_VIEWS
-from eval.e1_common import metrics_at_thresholds, select_fpr_thresholds
+from eval.e1_common import metrics_at_thresholds
 from eval.e1_robustness import _is_near_negative
 from eval.e1_train import build_dataset
 from eval.grouped_split_v2 import build_groups, split_rows
-from eval.revision.stage1 import BUDGET, CACHE, ROOT, SPLIT, _hash_fold, _labels, _matrix, fit_eval
+from eval.revision.stage1 import (
+    BUDGET,
+    CACHE,
+    ROOT,
+    SPLIT,
+    _hash_fold,
+    _labels,
+    _matrix,
+    fit_eval,
+)
 
 RULES = ("pooled", "cohort", "block_conf", "crossfit")
 
