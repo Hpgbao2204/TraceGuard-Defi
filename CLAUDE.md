@@ -54,3 +54,9 @@ python -m eval.e1_cli --steps train report       # Stage 1 from trace cache, ~2 
   there before `eval.rq3.guard_restoration run`. `cmd/framelocal` gained `-target-extra-gas` (counterfactual runs
   only) and the revert origin now follows only reverts re-raised unchanged (caught reverts are reported in
   `caught_victim_reverts`). Mainnet sandwich drop tests: `eval/revision/mainnet_sandwich.py`.
+- Second revision pass (Sept 2026), all outputs under `.cache/revision/`: `threshold.py` (pooled vs block-conformal
+  Stage 1 thresholds over 50 grouped seeds), `tolerance.py` (epsilon/rho/delta sensitivity; `sim` reruns the simulator),
+  `blockscan.py` + `blockscan_score.py` (BlockScan reproduced with the authors' model; the scorer runs in
+  `.cache/blockscan-venv`, Python 3.11 with torch 2.1 / transformers 4.32), `mainnet_benign.py` (heuristic-negative
+  mainnet cohort; set `QUICKNODE_TRACE_RPC=https://eth.drpc.org` and `GETH_REPLAY=.cache/geth-replay.exe` for
+  `acquire`, because the configured trace endpoint fails TLS and the B2 runner is not at its default path).
