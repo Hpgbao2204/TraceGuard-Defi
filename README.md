@@ -77,6 +77,15 @@ python -m eval.revision.mainnet_sandwich scan --start 22100000 --blocks 400 --ma
 python -m eval.revision.mainnet_sandwich acquire     # a public dRPC trace endpoint works for prestateTracer
 python -m eval.revision.mainnet_sandwich run --exe .cache/geth-replay
 
+# Review revisions: block-conformal threshold, tolerance sensitivity, BlockScan on the same split,
+# heuristic-negative mainnet cohort, paired/temporal Stage 1 checks
+python -m eval.revision.threshold
+python -m eval.revision.tolerance sim && python -m eval.revision.tolerance analyze
+python -m eval.revision.blockscan prepare && python -m eval.revision.blockscan score && python -m eval.revision.blockscan evaluate
+python -m eval.revision.mainnet_benign scan && python -m eval.revision.mainnet_benign acquire && \
+  python -m eval.revision.mainnet_benign run --exe .cache/geth-replay && python -m eval.revision.mainnet_benign audit
+python -m eval.revision.stage1_checks
+
 # Figures
 python -m eval.plots.fig_rq1 && python -m eval.plots.fig_rq2 && python -m eval.plots.fig_rq3 && python -m eval.plots.fig_rq4
 python -m eval.plots.fig_rq4_mainnet
@@ -86,6 +95,34 @@ Timing results depend on the machine; small differences from the paper are expec
 
 The data behind every table and figure can be packaged with `python -m tools.build_dataset_release`, which writes
 `dist/TraceGuard-DeFi_dataset_v1.zip` (datasheet, checksums, provider URLs and local paths removed, proofs kept).
+
+## Stage 1 specification
+
+The three views are fixed functions of the call trace (`core/views.py`); only the fusion is fitted.
+
+| View | Score in [0, 1] |
+|---|---|
+| call structure | `0.35 z(log10 calls; log10 20, 0.30) + 0.20 z(depth; 5, 2.5) + 0.30 z(log10(1 + shallow-large-out frames); 0.7, 0.5) + 0.15 z(fan-out skew; 4, 6)`, with `z(x; m, s) = 1 / (1 + exp(-(x - m) / s))`; a shallow-large-out frame sits at depth <= 1 and has a subtree of at least 12 calls and 6 levels |
+| token flow | `sigmoid(-0.5 + 1.5 log10(1 + src_excess) + 1.2 log10(1 + flow_excess) + 0.8 log10(1 + evt_excess))`: excess distinct sources into one (account, token), excess transfers into one (account, token), and transfer events beyond two |
+| economic actions | `0.2 x` the number of signals among flash loan, oracle read, price deviation (two oracle reads, or one with a swap), zero `amountOutMin`, origin return imbalance, and a privileged call with a large transfer |
+| state delta | not observed in the trace cache; constant 0 |
+
+Fusion: `p(T) = sigmoid((w0 + sum_v w_v s_v) / theta)`, L2-regularized logistic regression (lambda = 1, seed 42)
+on the fit partition and temperature scaling on the calibration partition (`core/fusion.py`). On the frozen
+block-grouped split the fitted model is `w0 = -7.94`, `w_call = 5.13`, `w_token = 4.80`, `w_econ = 2.00`
+(temperature folded in), `tau_1% = 0.128`; `python -m eval.revision.stage1` reproduces it and prints the weights.
+
+## Replay semantics referenced by the paper
+
+- Boundary amendment (RQ3): the rule, as pseudocode, is the docstring of `eval/rq3/boundary_amendment.py`.
+- Value interventions (`tools/geth-replay/cmd/framelocal`): an intervened call by V is answered by a stub, so the
+  callee does not run; the observed value and `v0` come from STATICCALLs on copies of the current state and of
+  S0. A site whose call attempts a state write at any depth is not admissible: it runs unchanged and the run is
+  INCONCLUSIVE (`site_not_read_only`).
+- Ordering confound J(D) (`tools/geth-replay`, `-drop-tx`): an intermediate transaction is unchanged only if its
+  status, gas, logs, and state diff (the items it writes and the amount of each change, compared with its diffMode
+  prestateTracer row) match the observed order (`state_changed` otherwise). The simulator uses the same
+  definition through anvil's prestateTracer (`eval/mev_sim/chain.py`).
 
 ## Tests
 

@@ -3,9 +3,9 @@
     python -m eval.plots.fig_rq4_mainnet --out paper/figures
 
 Reads .cache/revision/sandwich/results.json (eval.revision.mainnet_sandwich run; local only) and writes
-  fig7a.pdf  per sandwich: the victim's relative shortfall when the front-run is dropped and when a placebo
+  tg-rq4-shortfall.pdf  per sandwich: the victim's relative shortfall when the front-run is dropped and when a placebo
              prefix transaction is dropped (symmetric-log axis), coloured by verdict, with delta = 10 bps;
-  fig7b.pdf  per run (baseline, front-run drop, placebo drop): the engine's EVM time for the target and for
+  tg-rq4-time.pdf  per run (baseline, front-run drop, placebo drop): the engine's EVM time for the target and for
              the whole replayed prefix plus target, on the proof-bound mainnet contexts.
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ from .fig_rq1 import C_ATTACK, C_NEAR, INK2, MUTED, ROOT, style
 
 RESULTS = ROOT / ".cache" / "revision" / "sandwich" / "results.json"
 DELTA = 0.001
-PANEL_W, PANEL_H = 2.3, 1.55  # inches: 0.49 of the LNCS text width
+PANEL_W, PANEL_H = 2.3, 1.4  # inches: 0.49 of the LNCS text width
 COLOR = {"CAUSE": C_ATTACK, "NO_EFFECT": MUTED, "INCONCLUSIVE": C_NEAR}
 
 
@@ -67,7 +67,7 @@ def main() -> int:
                        for k in ("CAUSE", "NO_EFFECT")], loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2,
               frameon=False, handletextpad=0.2, columnspacing=1.0)
     args.out.mkdir(parents=True, exist_ok=True)
-    fig.savefig(args.out / "fig7a.pdf")
+    fig.savefig(args.out / "tg-rq4-shortfall.pdf")
     plt.close(fig)
 
     # (b) engine cost on mainnet contexts: target EVM time and whole-context replay time per run
@@ -97,9 +97,9 @@ def main() -> int:
     ax.set_xlabel("EVM time per run (ms)")
     ax.legend(frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2, handletextpad=0.2,
               columnspacing=1.0, markerscale=1.3)
-    fig.savefig(args.out / "fig7b.pdf")
+    fig.savefig(args.out / "tg-rq4-time.pdf")
     plt.close(fig)
-    print(f"wrote {args.out / 'fig7a.pdf'} and fig7b.pdf from {len(rows)} sandwiches")
+    print(f"wrote {args.out / 'tg-rq4-shortfall.pdf'} and tg-rq4-time.pdf from {len(rows)} sandwiches")
     return 0
 
 

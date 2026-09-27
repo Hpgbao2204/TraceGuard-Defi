@@ -8,7 +8,7 @@ Reads the frozen Stage-1 artifacts (local only, git-ignored):
   eval/results/runs/p7-robustness-20260912-r1/                 temporal and held-family grouped folds
   eval/results/e1_evaluation.json + e1_trace_cache.jsonl       stratified split (block leakage), shown for contrast
 
-Writes fig3a.pdf (PR curves), fig3b.pdf (score distributions), fig3c.pdf (AUPRC across evaluations).
+Writes tg-rq1-pr.pdf (PR curves), tg-rq1-scores.pdf (score distributions), tg-rq1-auprc.pdf (AUPRC across evaluations).
 """
 from __future__ import annotations
 
@@ -146,7 +146,7 @@ def panel_a(out: Path, g, s) -> None:
     ax.grid(True, lw=0.3, color="#e6e5e0", zorder=0)
     ax.legend(loc="lower left", bbox_to_anchor=(-0.02, 1.0), frameon=False, handlelength=1.8,
               borderaxespad=0.0, labelspacing=0.2, fontsize=7)
-    fig.savefig(out / "fig3a.pdf")
+    fig.savefig(out / "tg-rq1-pr.pdf")
     plt.close(fig)
 
 
@@ -184,7 +184,7 @@ def panel_b(out: Path, g) -> None:
     ax.tick_params(axis="y", length=0)
     ax.spines["left"].set_visible(False)
     ax.grid(True, axis="x", lw=0.3, color="#e6e5e0", zorder=0)
-    fig.savefig(out / "fig3b.pdf")
+    fig.savefig(out / "tg-rq1-scores.pdf")
     plt.close(fig)
 
 
@@ -255,7 +255,7 @@ def panel_c(out: Path, g, s) -> None:
     ax.grid(True, axis="x", lw=0.3, color="#e6e5e0", zorder=0)
     ax.axhline(3.5, color="#e6e5e0", lw=0.5)
     ax.axhline(4.5, color="#e6e5e0", lw=0.5)
-    fig.savefig(out / "fig3c.pdf")
+    fig.savefig(out / "tg-rq1-auprc.pdf")
     plt.close(fig)
 
 
@@ -270,7 +270,7 @@ def main() -> None:
     panel_a(args.out, g, s)
     panel_b(args.out, g)
     panel_c(args.out, g, s)
-    print("wrote", *(args.out / f"fig3{p}.pdf" for p in "abc"))
+    print("wrote", *(args.out / f"tg-rq1-{p}.pdf" for p in ("pr", "scores", "auprc")))
 
 
 if __name__ == "__main__":

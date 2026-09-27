@@ -3,11 +3,11 @@
     python -m eval.plots.fig_rq3 --out paper/figures
 
 The unit of analysis is the victim read and the victim call frame, not the case:
-  (a) fig5a.pdf  every read made by the victim inside a harm frame (n = 795), placed by how much its value
+  (a) tg-rq3-reads.pdf  every read made by the victim inside a harm frame (n = 795), placed by how much its value
                  changed between S0 and harm-frame entry, grouped by what the read is, marked by factor rule;
-  (b) fig5b.pdf  execution raster of all 20 transactions: victim entry frames, harm frames, and changed reads
+  (b) tg-rq3-raster.pdf  execution raster of all 20 transactions: victim entry frames, harm frames, and changed reads
                  on a normalized execution clock;
-  (c) fig5c.pdf  flow of the seven v2 factor cases' revert origin from unscoped to read-scoped to frame-local.
+  (c) tg-rq3-flow.pdf  flow of the seven v2 factor cases' revert origin from unscoped to read-scoped to frame-local.
 
 Inputs (local, git-ignored): .cache/rq3_discover/*.json, eval/rq3/fixed20_factors{,_v3}.json,
 .cache/rq3_final_v2/summary.json.
@@ -116,7 +116,7 @@ def panel_a(out: Path, cases, f2, f3) -> None:
               labels=["v2 factor", "v2+v3 factor", "other"], loc="lower center",
               bbox_to_anchor=(0.45, 1.06), ncol=3, frameon=False, fontsize=6.5, handletextpad=0.1,
               borderaxespad=0.1, labelspacing=0.15)
-    fig.savefig(out / "fig5a.pdf")
+    fig.savefig(out / "tg-rq3-reads.pdf")
     plt.close(fig)
 
 
@@ -163,7 +163,7 @@ def panel_b(out: Path, cases, f2, summary) -> None:
               labels=["harm frame", "other frame", "changed read"], loc="lower center",
               bbox_to_anchor=(0.45, 1.0), ncol=3, frameon=False, fontsize=6.5, handlelength=1.0,
               columnspacing=0.5, handletextpad=0.3, borderaxespad=0.1)
-    fig.savefig(out / "fig5b.pdf")
+    fig.savefig(out / "tg-rq3-raster.pdf")
     plt.close(fig)
 
 
@@ -223,7 +223,7 @@ def panel_c(out: Path, summary) -> None:
               ncol=1, frameon=False, fontsize=6.5, handlelength=0.9, handletextpad=0.3, borderaxespad=0.1,
               labelspacing=0.15)
     ax.set_xlabel("Revert origin")
-    fig.savefig(out / "fig5c.pdf")
+    fig.savefig(out / "tg-rq3-flow.pdf")
     plt.close(fig)
 
 
@@ -242,7 +242,7 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     panel_a(args.out, cases, f2, f3)
     panel_b(args.out, cases, f2, summary)
-    print("wrote", *(args.out / f"fig5{p}.pdf" for p in "ab"))
+    print("wrote", *(args.out / f"tg-rq3-{p}.pdf" for p in ("reads", "raster")))
 
 
 if __name__ == "__main__":
