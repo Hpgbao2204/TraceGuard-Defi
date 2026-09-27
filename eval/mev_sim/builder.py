@@ -92,8 +92,8 @@ class Builder:
         self.pools = {p.lower() for p in world.pools.values()}
         self.pool_tokens = world.pool_tokens
 
-    def _exec(self, txs: list[SimTx]) -> list[Receipt]:
-        return [self.rpc.send(t.sender, t.to, t.data) for t in txs]
+    def _exec(self, txs: list[SimTx], state_diff: bool = False) -> list[Receipt]:
+        return [self.rpc.send(t.sender, t.to, t.data, state_diff=state_diff) for t in txs]
 
     def model(self) -> AmmModel:
         return AmmModel(self.pool_tokens, self.w.reserves())
@@ -112,7 +112,8 @@ class Builder:
             pre_model = self.model() if b.attack else None
             snap = self.rpc.snapshot()
             t0 = time.perf_counter()
-            obs = self._exec(b.txs)
+            drop_test = self.mode in ("tg_open", "tg_closed")  # J(D) compares state diffs too
+            obs = self._exec(b.txs, state_diff=drop_test)
             rec.sim_ms = (time.perf_counter() - t0) * 1e3
             if any(r.status != 1 for r in obs):
                 self.rpc.revert(snap)
@@ -152,7 +153,7 @@ class Builder:
 
                 def run_cf(keep: list[int]) -> list[Receipt]:
                     s = self.rpc.snapshot()
-                    out = self._exec([b.txs[k] for k in keep])
+                    out = self._exec([b.txs[k] for k in keep], state_diff=True)
                     self.rpc.revert(s)
                     return out
 

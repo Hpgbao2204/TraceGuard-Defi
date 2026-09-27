@@ -57,7 +57,9 @@ def net_inflow(rc: Receipt, account: str, pools: set[str]) -> dict[str, int]:
 
 
 def fingerprint(rc: Receipt) -> tuple:
-    return (rc.status, tuple((lg["address"].lower(), tuple(lg["topics"]), lg["data"]) for lg in rc.logs))
+    """Status, gas, log digest, and state-diff digest: the out_j of J(D) (Eq. 5 of the paper)."""
+    return (rc.status, rc.gas_used, tuple((lg["address"].lower(), tuple(lg["topics"]), lg["data"]) for lg in rc.logs),
+            rc.state_diff)
 
 
 # ------------------------------------------------------------------ layer 1 and baselines

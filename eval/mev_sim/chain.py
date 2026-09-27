@@ -116,6 +116,38 @@ class Receipt:
     status: int
     logs: list[dict]
     gas_used: int
+    state_diff: str = ""   # digest of the per-item state changes (state_diff_digest), when requested
+
+
+def _word(raw: str | int | None) -> int:
+    if raw is None:
+        return 0
+    return raw if isinstance(raw, int) else int(raw, 16) if raw not in ("", "0x") else 0
+
+
+def state_diff_digest(trace: dict) -> str:
+    """Digest of what a transaction did to state, from a diffMode prestateTracer result: for every
+    changed balance, nonce, and storage word the amount of the change (storage modulo 2^256), and the
+    new code hash. Comparing amounts rather than resulting values makes a transaction that performs the
+    same writes on a shifted state (an earlier transaction dropped) unchanged, as in geth-replay."""
+    pre, post = trace.get("pre") or {}, trace.get("post") or {}
+    items: list[tuple] = []
+    for addr in sorted(set(pre) | set(post)):
+        before, after = pre.get(addr) or {}, post.get(addr)
+        deleted = after is None
+        after = after or {}
+        if "balance" in after or (deleted and _word(before.get("balance"))):
+            items.append((addr, "balance", _word(after.get("balance")) - _word(before.get("balance"))))
+        if "nonce" in after:
+            items.append((addr, "nonce", _word(after.get("nonce")) - _word(before.get("nonce"))))
+        if "code" in after:
+            items.append((addr, "code", keccak(hexstr=after["code"]).hex()))
+        slots = set(after.get("storage") or {}) | set(before.get("storage") or {})
+        for slot in sorted(slots):
+            new = _word((after.get("storage") or {}).get(slot))
+            old = _word((before.get("storage") or {}).get(slot))
+            items.append((addr, slot, (new - old) % (1 << 256)))
+    return keccak(text=json.dumps(items, default=str)).hex()
 
 
 class Rpc:
@@ -133,7 +165,7 @@ class Rpc:
             raise RuntimeError(f"{method}: {body['error']}")
         return body["result"]
 
-    def send(self, frm: str, to: str | None, data: str) -> Receipt:
+    def send(self, frm: str, to: str | None, data: str, state_diff: bool = False) -> Receipt:
         tx = {"from": frm, "data": data, "gas": hex(TX_GAS), "gasPrice": "0x0"}
         if to:
             tx["to"] = to
@@ -142,7 +174,13 @@ class Rpc:
         while rc is None:  # automine is normally synchronous; guard against a late receipt
             time.sleep(0.001)
             rc = self.call("eth_getTransactionReceipt", [h])
-        return Receipt(int(rc["status"], 16), rc["logs"], int(rc["gasUsed"], 16)) if to else _deploy_receipt(rc)
+        if not to:
+            return _deploy_receipt(rc)
+        out = Receipt(int(rc["status"], 16), rc["logs"], int(rc["gasUsed"], 16))
+        if state_diff:
+            out.state_diff = state_diff_digest(self.call(
+                "debug_traceTransaction", [h, {"tracer": "prestateTracer", "tracerConfig": {"diffMode": True}}]))
+        return out
 
     def mine_signed(self, txs: list[tuple[str, str, str]]) -> int:
         """Sign ``(sender, to, data)`` with the senders' simulation keys, mine them as one block in
