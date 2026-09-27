@@ -84,6 +84,9 @@ python -m eval.plots.fig_rq4_mainnet
 
 Timing results depend on the machine; small differences from the paper are expected.
 
+The data behind every table and figure can be packaged with `python -m tools.build_dataset_release`, which writes
+`dist/TraceGuard-DeFi_dataset_v1.zip` (datasheet, checksums, provider URLs and local paths removed, proofs kept).
+
 ## Tests
 
 ```bash
