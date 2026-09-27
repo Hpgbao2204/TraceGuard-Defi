@@ -76,6 +76,9 @@ def main() -> int:
     for y, (stem, _) in enumerate(labels):
         tgt, rep = [], []
         for r in rows:
+            # a placebo file without a placebo verdict is left over from an earlier placebo rule
+            if stem == "drop_placebo" and (r.get("placebo_drop") or {}).get("verdict") in (None, "N/A"):
+                continue
             f = runs_dir / r["victim_hash"] / f"{stem}.json"
             if f.is_file():
                 t = json.loads(f.read_text(encoding="utf-8")).get("timing_ms") or {}
